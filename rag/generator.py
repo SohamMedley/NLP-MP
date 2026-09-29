@@ -86,7 +86,15 @@ def _complete(model: str, messages: list[dict]) -> str:
     if model.startswith("openai/gpt-oss"):
         # Reasoning models: keep thinking short and out of the returned content.
         params.update(reasoning_effort="low", include_reasoning=False)
-    response = _get_client().chat.completions.create(**params)
+    try:
+        response = _get_client().chat.completions.create(**params)
+    except Exception as exc:
+        if type(exc).__name__ == "BadRequestError" and "reasoning" in str(exc).lower():
+            params.pop("reasoning_effort", None)
+            params.pop("include_reasoning", None)
+            response = _get_client().chat.completions.create(**params)
+        else:
+            raise
     return (response.choices[0].message.content or "").strip()
 
 

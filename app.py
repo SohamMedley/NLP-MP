@@ -84,7 +84,7 @@ def index():
 def health():
     return jsonify({"status": "ok", "service": "DocuRAG",
                     "groq_configured": bool(config.groq_api_key()),
-                    "model": active_model(), "embedding_model": config.EMBEDDING_MODEL,
+                    "llm_provider": "Groq", "model": active_model(), "embedding_model": config.EMBEDDING_MODEL,
                     **store.stats()})
 
 

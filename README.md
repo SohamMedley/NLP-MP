@@ -224,7 +224,8 @@ To change the LLM model, chunking or threshold, edit the environment variables i
 
 - **Ephemeral storage on Render Free.** The service's local disk is not persistent. The FAISS index and metadata are saved to `data/` as a convenience, but they are lost on every redeploy, restart or spin-down. After that, **users must re-upload their PDFs.** A persistent disk needs a paid plan, which this project deliberately avoids.
 - **Spin-down.** Free web services sleep after a period of inactivity. The next request can take tens of seconds (cold start plus model load).
-- **Memory and CPU.** 512 MB RAM and a shared CPU. Large PDFs (hundreds of pages) take a while to embed and may approach memory limits.
+- **Memory and CPU.** 512 MB RAM and a shared CPU. Embedding runs single-threaded in batches of 4; a 120-page PDF peaked at ~336 MB in testing. Very large collections (many hundreds of pages) can still exceed the limit, and Render then restarts the service (the browser sees HTTP 502).
+- **LLM naming.** `openai/gpt-oss-20b` is an *open-weight* model released by OpenAI and **hosted by Groq**. All requests go to the Groq API with your `GROQ_API_KEY`; no OpenAI API or key is used.
 - **Shared index.** There are no user accounts. Everyone using the same deployment sees the same document collection. That's fine for a demo or a single user, but not for multi-user privacy.
 - **Scanned PDFs.** Pages that are only images have no extractable text (no OCR). They are reported as "not enough extractable text".
 - **Retrieval limits.** A single-vector dense retriever can miss exact keyword matches, and broad requests like "Summarize this document" only see the top-K chunks, not the whole file.

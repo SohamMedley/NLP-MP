@@ -22,7 +22,7 @@ def get_model():
         with _lock:
             if _model is None:
                 from fastembed import TextEmbedding
-                kwargs = {"cache_dir": config.MODEL_CACHE_DIR}
+                kwargs = {"cache_dir": config.MODEL_CACHE_DIR, "threads": 1}
                 if config.EMBEDDING_MODEL_PATH:
                     # Optional offline mode: load ONNX files from a local folder.
                     kwargs["specific_model_path"] = config.EMBEDDING_MODEL_PATH
@@ -36,8 +36,11 @@ def _normalize(vectors: np.ndarray) -> np.ndarray:
     return (vectors / norms).astype("float32")
 
 
-def embed_texts(texts: list[str], batch_size: int = 32) -> np.ndarray:
-    """Return L2-normalized float32 vectors so inner product == cosine similarity."""
+def embed_texts(texts: list[str], batch_size: int = 4) -> np.ndarray:
+    """Return L2-normalized float32 vectors so inner product == cosine similarity.
+
+    Small batches keep peak memory low (~260 MB total), which matters on
+    Render's 512 MB free instance; speed is similar on a single CPU thread."""
     vectors = np.array(list(get_model().embed(texts, batch_size=batch_size)), dtype="float32")
     return _normalize(vectors)
 

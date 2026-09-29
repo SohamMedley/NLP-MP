@@ -67,14 +67,28 @@
     .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
   const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
 
-  async function api(url, options = {}) {
+  const WAKING_MSG = "The server is waking up or restarting (free hosting sleeps when idle). Please try again in a few seconds.";
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+  // Retries once or twice when the hosting proxy (not our app) returns 502/503/504,
+  // which happens during cold starts and redeploys on Render's free plan.
+  async function api(url, options = {}, retries = 2) {
     let res;
-    try { res = await fetch(url, options); } catch { throw new Error("Network error. Is the server running?"); }
-    let data = {};
-    try { data = await res.json(); } catch { /* non-JSON response */ }
+    try { res = await fetch(url, options); } catch {
+      if (retries > 0) { await sleep(3000); return api(url, options, retries - 1); }
+      throw new Error("Network error. Check your connection and try again.");
+    }
+    let data = null;
+    try { data = await res.json(); } catch { /* non-JSON: came from the proxy, not the app */ }
+    if (!data && [502, 503, 504].includes(res.status)) {
+      if (retries > 0) { await sleep(4000); return api(url, options, retries - 1); }
+      throw new Error(WAKING_MSG);
+    }
+    data = data || {};
     if (!res.ok || data.success === false) {
-      const err = new Error(data.error || `Request failed (${res.status}).`);
+      const err = new Error(data.error || `Request failed (${res.status}). Please try again.`);
       err.data = data;
+      err.status = res.status;
       throw err;
     }
     return data;
@@ -272,7 +286,10 @@
         let data = {};
         try { data = JSON.parse(xhr.responseText); } catch { /* ignore */ }
         if (xhr.status >= 200 && xhr.status < 300 && data.success) resolve(data);
-        else { const err = new Error(data.error || `Upload failed (${xhr.status}).`); err.data = data; reject(err); }
+        else {
+          const msg = data.error || ([502, 503, 504].includes(xhr.status) ? WAKING_MSG : `Upload failed (${xhr.status}). Please try again.`);
+          const err = new Error(msg); err.data = data; reject(err);
+        }
       };
       xhr.onerror = () => reject(new Error("Network error during upload."));
       xhr.send(formData);
@@ -282,7 +299,11 @@
   async function pollJob(jobId) {
     for (;;) {
       await new Promise((r) => setTimeout(r, 500));
-      const job = await api(`/api/jobs/${jobId}`);
+      let job;
+      try { job = await api(`/api/jobs/${jobId}`); } catch (err) {
+        if (err.status === 404) throw new Error("The server restarted while processing. Please upload the file again.");
+        throw err;
+      }
       const stageIdx = STAGES.indexOf(job.stage);
       const perFile = 80 / job.total_files;
       const fileBase = Math.max(0, job.file_index - 1) * perFile;
@@ -594,13 +615,16 @@
   /* ================= health ================= */
   async function checkHealth() {
     try {
-      const data = await (await fetch("/api/health")).json();
-      el.modelChip.textContent = data.model;
+      const res = await fetch("/api/health");
+      if (!res.ok) throw new Error("unhealthy");
+      const data = await res.json();
+      el.modelChip.textContent = `Groq · ${String(data.model).replace(/^openai\//, "")}`;
+      el.modelChip.title = `LLM served by Groq: ${data.model} (open-weight model)`;
       el.modelChip.hidden = false;
       if (data.groq_configured) {
         el.statusPill.className = "status ok";
         el.statusText.textContent = "Online";
-        el.statusPill.title = `LLM: ${data.model} · Embeddings: ${data.embedding_model}`;
+        el.statusPill.title = `LLM: ${data.model} on Groq · Embeddings: ${data.embedding_model} (local)`;
       } else {
         el.statusPill.className = "status warn";
         el.statusText.textContent = "API key missing";
@@ -608,7 +632,8 @@
       }
     } catch {
       el.statusPill.className = "status err";
-      el.statusText.textContent = "Offline";
+      el.statusText.textContent = "Waking up…";
+      setTimeout(() => { checkHealth(); loadDocuments(); }, 5000);
     }
   }
 

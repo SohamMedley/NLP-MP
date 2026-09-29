@@ -6,9 +6,11 @@ services:
     buildCommand: pip install -r requirements.txt && python -m rag.embeddings
     # One worker: the FAISS index lives in process memory and must be shared.
     # Threads allow polling upload progress while a PDF is being embedded.
-    startCommand: gunicorn app:app --workers 1 --threads 4 --timeout 180 --bind 0.0.0.0:$PORT
+    startCommand: gunicorn app:app --workers 1 --threads 4 --timeout 300 --graceful-timeout 30 --bind 0.0.0.0:$PORT
     healthCheckPath: /api/health
     envVars:
+      - key: OMP_NUM_THREADS
+        value: "1"
       - key: PYTHON_VERSION
         value: 3.11.9
       - key: GROQ_API_KEY
