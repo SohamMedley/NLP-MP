@@ -2,19 +2,15 @@ services:
   - type: web
     name: documind-rag
     runtime: python
-    plan: starter
+    plan: free
     buildCommand: pip install --no-cache-dir -r requirements.txt
     startCommand: gunicorn app:app --bind 0.0.0.0:$PORT --workers 1 --threads 4 --timeout 120
     healthCheckPath: /api/health
-    disk:
-      name: documind-data
-      mountPath: /var/data
-      sizeGB: 1
     envVars:
       - key: PYTHON_VERSION
         value: "3.11.11"
       - key: DOCUMIND_DATA_DIR
-        value: /var/data
+        value: /tmp/documind-data
       - key: SECRET_KEY
         generateValue: true
       - key: PYTHONUNBUFFERED

@@ -38,9 +38,9 @@ Optional configuration:
 
 ## Render Blueprint deploy
 
-`render.yaml` defines a Python web service, a health check, one Gunicorn worker with four threads, a generated Flask secret, and a 1 GB persistent disk mounted at `/var/data`. In Render, create a new **Blueprint** from this repository and review the plan before confirming deployment.
+`render.yaml` is configured for Render's **free** Python web-service plan, with a health check, one Gunicorn worker/four threads, a generated Flask secret, and temporary storage at `/tmp/documind-data`. It does not request a persistent disk or a paid instance. Create a new **Blueprint** from this repository and confirm that the service plan is shown as Free before deploying; no payment card should be needed for this configuration.
 
-The blueprint uses Render's **Starter** web-service plan because persistent disks require a paid service. The disk keeps processed documents and session cookies working across deploys/restarts. If you intentionally change the service to a free plan, remove the `disk` block and point `DOCUMIND_DATA_DIR` to a writable temporary path (for example `/tmp/documind-data`); free-instance filesystems are ephemeral, so uploaded libraries will not survive a restart or redeploy. Check Render's current pricing and limits before deploying.
+Free compute has trade-offs: the instance can spin down after inactivity, so the first visit after idle time may be slower. Its filesystem is ephemeral, so uploaded document libraries and extracted passages can disappear after a restart, spin-down, or redeploy. Re-upload documents when that happens. Do not add a persistent disk or change the plan to Starter if keeping the deployment strictly cost-free is required.
 
 Render sets the service port; Gunicorn binds to it automatically. Health is checked at `/api/health`.
 
