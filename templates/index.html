@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DocuRAG — RAG-Based Document Question Answering</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body data-max-upload-mb="{{ max_upload_mb }}">
+  <header class="topbar">
+    <div class="brand">
+      <div class="logo" aria-hidden="true">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><circle cx="11.5" cy="14.5" r="2.5"/><path d="m13.3 16.3 1.9 1.9"/></svg>
+      </div>
+      <div>
+        <h1>DocuRAG</h1>
+        <p class="subtitle">RAG-Based Document Question Answering System</p>
+      </div>
+    </div>
+    <div class="topbar-actions">
+      <label class="toggle" title="Show every retrieved chunk and its similarity score">
+        <input type="checkbox" id="debugToggle">
+        <span class="toggle-track"><span class="toggle-thumb"></span></span>
+        <span>Retrieval debug</span>
+      </label>
+      <span class="status-pill" id="statusPill"><span class="dot"></span><span id="statusText">Checking…</span></span>
+    </div>
+  </header>
+
+  <div class="layout">
+    <aside class="sidebar" aria-label="Documents">
+      <section class="card">
+        <h2 class="section-title">Upload documents</h2>
+        <div class="dropzone" id="dropzone" tabindex="0" role="button" aria-label="Upload PDF files: drop here or press Enter to browse">
+          <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m17 8-5-5-5 5"/><path d="M12 3v12"/></svg>
+          <p class="dz-title">Drop PDFs here or <span class="link">browse</span></p>
+          <p class="dz-hint">PDF only · up to {{ max_upload_mb }} MB per upload</p>
+          <input type="file" id="fileInput" accept="application/pdf,.pdf" multiple hidden>
+        </div>
+        <div class="progress hidden" id="progress" aria-live="polite">
+          <div class="progress-head">
+            <span class="spinner" aria-hidden="true"></span>
+            <span id="progressStage">Uploading…</span>
+          </div>
+          <div class="progress-file" id="progressFile"></div>
+          <div class="bar"><div class="bar-fill" id="progressBar"></div></div>
+        </div>
+        <div id="uploadMessages" class="upload-messages" aria-live="polite"></div>
+      </section>
+
+      <section class="card">
+        <div class="section-head">
+          <h2 class="section-title">Documents</h2>
+          <span class="badge" id="docCount">0</span>
+        </div>
+        <div class="stats">
+          <div><span class="stat-value" id="statDocs">0</span><span class="stat-label">Documents</span></div>
+          <div><span class="stat-value" id="statPages">0</span><span class="stat-label">Pages</span></div>
+          <div><span class="stat-value" id="statChunks">0</span><span class="stat-label">Chunks</span></div>
+        </div>
+        <p class="index-status" id="indexStatus">Index empty</p>
+        <ul class="doc-list" id="docList"></ul>
+        <p class="empty-docs" id="emptyDocs">No documents yet. Upload a PDF to build the semantic index.</p>
+        <div class="doc-actions">
+          <button class="btn btn-ghost btn-sm" id="rebuildBtn" disabled>Rebuild index</button>
+          <button class="btn btn-danger-ghost btn-sm" id="clearDocsBtn" disabled>Clear all</button>
+        </div>
+      </section>
+
+      <section class="card pipeline">
+        <h2 class="section-title">Pipeline</h2>
+        <ol class="pipeline-steps">
+          <li>Extract text page-by-page</li>
+          <li>Clean &amp; normalize</li>
+          <li>Sentence-aware chunking</li>
+          <li>Local embeddings (MiniLM)</li>
+          <li>FAISS cosine search</li>
+          <li>Grounded answer via Groq</li>
+        </ol>
+      </section>
+    </aside>
+
+    <main class="chat" aria-label="Chat">
+      <div class="messages" id="messages" aria-live="polite">
+        <div class="welcome" id="welcome">
+          <div class="welcome-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+          </div>
+          <h2>Ask questions about your documents</h2>
+          <p id="welcomeText">Upload one or more PDFs on the left. DocuRAG retrieves the most relevant passages and answers only from them — with page-level citations.</p>
+          <div class="suggestions hidden" id="suggestions">
+            <button class="chip" type="button">Summarize this document.</button>
+            <button class="chip" type="button">What are the main concepts?</button>
+            <button class="chip" type="button">Explain the key findings.</button>
+            <button class="chip" type="button">What is the conclusion?</button>
+          </div>
+        </div>
+      </div>
+
+      <form class="composer" id="composer" autocomplete="off">
+        <div class="composer-box">
+          <textarea id="questionInput" rows="1" maxlength="2000" placeholder="Upload a PDF to start asking questions…" aria-label="Your question" disabled></textarea>
+          <button type="submit" class="btn btn-primary send" id="sendBtn" disabled aria-label="Send question">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m22 2-7 20-4-9-9-4z"/><path d="M22 2 11 13"/></svg>
+          </button>
+        </div>
+        <div class="composer-foot">
+          <span class="hint">Enter to send · Shift+Enter for a new line</span>
+          <button type="button" class="btn btn-ghost btn-sm" id="clearChatBtn" disabled>Clear chat</button>
+        </div>
+      </form>
+    </main>
+  </div>
+
+  <div class="toast hidden" id="toast" role="alert"></div>
+  <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body>
+</html>
