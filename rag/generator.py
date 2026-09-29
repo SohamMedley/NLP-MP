@@ -27,6 +27,22 @@ class GenerationError(Exception):
     pass
 
 
+def _friendly_error(exc) -> str:
+    """Turn Groq SDK errors into actionable messages (no secrets included)."""
+    name = type(exc).__name__
+    text = str(exc).lower()
+    if name == "AuthenticationError" or "invalid api key" in text:
+        return "Groq rejected the API key. Check GROQ_API_KEY in your environment settings."
+    if "decommissioned" in text or "model_not_found" in text or name == "NotFoundError":
+        return (f"The Groq model '{config.GROQ_MODEL}' is unavailable. "
+                "Set GROQ_MODEL to a current model (e.g. llama-3.1-8b-instant).")
+    if name == "RateLimitError":
+        return "Groq rate limit reached. Please wait a minute and try again."
+    if name in ("APIConnectionError", "APITimeoutError"):
+        return "Could not reach the Groq API. Please try again shortly."
+    return "Unable to generate an answer right now. Please try again."
+
+
 _client = None
 
 
@@ -68,7 +84,7 @@ def generate_answer(question: str, context: str, history: list[dict]) -> str:
     except Exception as exc:
         # Log the error type/message only - never the request headers or key.
         logger.error("Groq API call failed: %s: %s", type(exc).__name__, exc)
-        raise GenerationError("Unable to generate an answer right now. Please try again.") from exc
+        raise GenerationError(_friendly_error(exc)) from exc
     if not answer:
         raise GenerationError("Unable to generate an answer right now. Please try again.")
     return answer

@@ -14,7 +14,7 @@
     indexStatus: $("indexStatus"), rebuildBtn: $("rebuildBtn"), clearDocsBtn: $("clearDocsBtn"),
     messages: $("messages"), welcome: $("welcome"), welcomeText: $("welcomeText"), suggestions: $("suggestions"),
     composer: $("composer"), input: $("questionInput"), sendBtn: $("sendBtn"), clearChatBtn: $("clearChatBtn"),
-    debugToggle: $("debugToggle"), statusPill: $("statusPill"), statusText: $("statusText"), toast: $("toast"),
+    debugToggle: $("debugToggle"), tabBadge: $("tabBadge"), welcomeUpload: $("welcomeUpload"), statusPill: $("statusPill"), statusText: $("statusText"), toast: $("toast"),
   };
 
   const state = { history: [], indexReady: false, busyUpload: false, busyAsk: false };
@@ -32,6 +32,25 @@
       node.append(child instanceof Node ? child : document.createTextNode(String(child)));
     }
     return node;
+  }
+
+  const SVG_NS = "http://www.w3.org/2000/svg";
+  function icon(paths, size = 16) {
+    const svg = document.createElementNS(SVG_NS, "svg");
+    svg.setAttribute("viewBox", "0 0 24 24"); svg.setAttribute("width", size); svg.setAttribute("height", size);
+    svg.setAttribute("fill", "none"); svg.setAttribute("stroke", "currentColor"); svg.setAttribute("stroke-width", "2.2");
+    svg.setAttribute("stroke-linecap", "round"); svg.setAttribute("stroke-linejoin", "round"); svg.setAttribute("aria-hidden", "true");
+    for (const d of paths) { const p = document.createElementNS(SVG_NS, "path"); p.setAttribute("d", d); svg.append(p); }
+    return svg;
+  }
+  // Album-art style gradient per document, derived from its name.
+  const ART = [["#ff5f6d", "#fa2d48"], ["#7f7fd5", "#5856d6"], ["#36d1dc", "#007aff"], ["#f7971e", "#ff9500"],
+    ["#56ab2f", "#34c759"], ["#ee9ca7", "#ff2d92"], ["#8e9eab", "#5b6b7a"], ["#b06ab3", "#af52de"]];
+  function artFor(name) {
+    let hash = 0;
+    for (const ch of name) hash = (hash * 31 + ch.charCodeAt(0)) >>> 0;
+    const [a, b] = ART[hash % ART.length];
+    return `linear-gradient(135deg, ${a}, ${b})`;
   }
 
   const escapeHtml = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
@@ -117,14 +136,14 @@
   /* ---------------- documents ---------------- */
   function renderDocuments(documents, stats) {
     el.docList.replaceChildren(...documents.map((doc) => h("li", { class: "doc-item" },
-      h("div", { class: "doc-icon", "aria-hidden": "true" }, "PDF"),
+      h("div", { class: "doc-art", "aria-hidden": "true", style: `background:${artFor(doc.filename)}` }, "PDF"),
       h("div", { class: "doc-meta" },
         h("div", { class: "doc-name", title: doc.filename }, doc.filename),
         h("div", { class: "doc-sub" }, `${doc.pages} pages · ${doc.chunks} chunks`)),
       h("button", {
         class: "icon-btn", type: "button", title: `Remove ${doc.filename}`,
         "aria-label": `Remove ${doc.filename}`, onclick: () => removeDocument(doc),
-      }, "✕"))));
+      }, icon(["M18 6 6 18", "m6 6 12 12"], 16)))));
 
     el.emptyDocs.classList.toggle("hidden", documents.length > 0);
     el.docCount.textContent = stats.documents;
@@ -132,8 +151,10 @@
     el.statPages.textContent = stats.pages;
     el.statChunks.textContent = stats.chunks;
     el.indexStatus.textContent = stats.index_ready
-      ? `Index ready · ${stats.documents} document${stats.documents === 1 ? "" : "s"} indexed • ${stats.chunks} chunks`
-      : "Index empty";
+      ? "Index ready" : "Index empty";
+    el.tabBadge.textContent = stats.documents;
+    el.tabBadge.classList.toggle("hidden", !stats.documents);
+    el.welcomeUpload.classList.toggle("hidden", stats.index_ready);
     el.indexStatus.classList.toggle("ready", stats.index_ready);
 
     state.indexReady = stats.index_ready;
@@ -141,8 +162,8 @@
     el.clearDocsBtn.disabled = !documents.length || state.busyUpload;
     el.suggestions.classList.toggle("hidden", !stats.index_ready);
     el.welcomeText.textContent = stats.index_ready
-      ? "Your documents are indexed. Ask anything — answers are generated only from retrieved passages, with citations."
-      : "Upload one or more PDFs on the left. DocuRAG retrieves the most relevant passages and answers only from them — with page-level citations.";
+      ? `${stats.documents} document${stats.documents === 1 ? "" : "s"} · ${stats.chunks} chunks indexed. Ask anything — answers come only from your PDFs, with citations.`
+      : "Add PDFs to your library. DocuRAG finds the most relevant passages and answers only from them, with page citations.";
     updateComposer();
   }
 
@@ -274,6 +295,9 @@
       }
       const s = job.stats;
       if (s && s.index_ready) toast(`${s.documents} document${s.documents === 1 ? "" : "s"} indexed • ${s.chunks} chunks`);
+      if (job.results.some((r) => r.status === "indexed") && window.matchMedia("(max-width: 820px)").matches) {
+        setTimeout(() => showView("chat"), 900);
+      }
     } catch (err) {
       addUploadMessage("err", err.message);
       (err.data?.results || []).slice(1).forEach((r) => addUploadMessage("err", `${r.filename}: ${r.message}`));
@@ -305,7 +329,7 @@
     const enabled = state.indexReady && !state.busyAsk;
     el.input.disabled = !state.indexReady;
     el.input.placeholder = state.indexReady
-      ? "Ask a question about your documents…" : "Upload a PDF to start asking questions…";
+      ? "Ask about your documents…" : "Add a PDF to start asking…";
     el.sendBtn.disabled = !enabled || !el.input.value.trim();
     el.clearChatBtn.disabled = state.history.length === 0 && !el.messages.querySelector(".msg");
   }
@@ -321,8 +345,9 @@
       sources.map((s) => h("details", { class: "source" },
         h("summary", {},
           h("span", { class: "src-num" }, s.number),
-          h("span", { class: "src-name", title: s.document }, s.document),
-          h("span", { class: "src-page" }, `— Page ${s.page}`),
+          h("span", { class: "src-info" },
+            h("span", { class: "src-name", title: s.document }, s.document),
+            h("span", { class: "src-page" }, `Page ${s.page}`)),
           scoreBadge(s.score)),
         h("div", { class: "excerpt" }, s.excerpt))));
   }
@@ -334,8 +359,9 @@
       retrieval.length ? retrieval.map((r, i) => h("details", { class: `source ${r.used ? "" : "unused"}` },
         h("summary", {},
           h("span", { class: "src-num" }, i + 1),
-          h("span", { class: "src-name" }, r.document),
-          h("span", { class: "src-page" }, `— Page ${r.page}`),
+          h("span", { class: "src-info" },
+            h("span", { class: "src-name" }, r.document),
+            h("span", { class: "src-page" }, `Page ${r.page}`)),
           h("span", { class: `tag ${r.used ? "used" : "dropped"}` }, r.used ? "sent to LLM" : "below threshold"),
           scoreBadge(r.score)),
         h("div", { class: "excerpt" }, r.text))) : h("div", { class: "debug-query" }, "No chunks retrieved."));
@@ -351,7 +377,7 @@
 
   function addPending() {
     const node = h("div", { class: "msg ai" },
-      h("div", { class: "avatar", "aria-hidden": "true" }, "AI"),
+      h("div", { class: "avatar", "aria-hidden": "true" }, icon(["M12 3l1.9 5.8L20 10l-6.1 1.2L12 17l-1.9-5.8L4 10l6.1-1.2z"], 16)),
       h("div", { class: "ai-body" }, h("div", { class: "answer-card" },
         h("span", { class: "typing" }, h("span", { class: "dots" }, h("span"), h("span"), h("span")),
           "Retrieving relevant passages and generating answer…"))));
@@ -425,6 +451,19 @@
   });
   el.debugToggle.addEventListener("change", () => {
     document.querySelectorAll(".debug-panel").forEach((p) => p.classList.toggle("hidden", !el.debugToggle.checked));
+  });
+
+  /* ---------------- mobile tabs ---------------- */
+  function showView(view) {
+    document.body.dataset.view = view;
+    document.querySelectorAll(".tab").forEach((t) => t.classList.toggle("active", t.dataset.tab === view));
+    window.scrollTo(0, 0);
+    if (view === "chat") scrollToBottom();
+  }
+  document.querySelectorAll(".tab").forEach((t) => t.addEventListener("click", () => showView(t.dataset.tab)));
+  el.welcomeUpload.addEventListener("click", () => {
+    if (window.matchMedia("(max-width: 820px)").matches) showView("library");
+    el.fileInput.click();
   });
 
   /* ---------------- health ---------------- */
