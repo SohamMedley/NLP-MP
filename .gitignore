@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+
+# Local data, user uploads and extracted document indexes
+data/
+uploads/
+indexes/
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+
+# Tooling / operating system
+.pytest_cache/
+.coverage
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp

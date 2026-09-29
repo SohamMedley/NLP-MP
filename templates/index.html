@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0b0911">
+  <meta name="description" content="A private, API-free document question-answering workspace powered by local NLP retrieval.">
+  <title>DocuMind — Ask your documents</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body data-max-upload-mb="{{ config.MAX_CONTENT_LENGTH // (1024 * 1024) }}">
+  <div class="ambient" aria-hidden="true">
+    <div class="ambient__glow ambient__glow--one"></div>
+    <div class="ambient__glow ambient__glow--two"></div>
+    <div class="ambient__grid"></div>
+  </div>
+
+  <div class="app-shell">
+    <aside class="sidebar" id="sidebar" aria-label="Document library">
+      <div class="sidebar__top">
+        <a class="brand" href="/" aria-label="DocuMind home">
+          <span class="brand__mark" aria-hidden="true">
+            <svg viewBox="0 0 32 32" fill="none">
+              <path d="M8 4.75h10.2L25 11.5v15.75H8a2 2 0 0 1-2-2v-18.5a2 2 0 0 1 2-2Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/>
+              <path d="M18 5v7h7M11 17h10M11 21h7" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+              <circle cx="23" cy="23" r="5.25" fill="#0b0911" stroke="currentColor" stroke-width="1.5"/>
+              <path d="M23 20.6v4.8M20.6 23h4.8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+            </svg>
+          </span>
+          <span class="brand__name">docu<span>mind</span></span>
+        </a>
+        <span class="local-badge"><span class="local-badge__dot"></span> LOCAL RAG</span>
+      </div>
+
+      <div class="sidebar__body">
+        <div class="section-label"><span>YOUR WORKSPACE</span><span class="section-label__line"></span></div>
+
+        <div class="upload-zone" id="uploadZone" role="button" tabindex="0" aria-label="Upload PDF, TXT or Markdown documents" aria-controls="fileInput">
+          <input type="file" id="fileInput" accept=".pdf,.txt,.md,.markdown" hidden multiple>
+          <div class="upload-zone__icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
+              <path d="M12 16V4m0 0L7.5 8.5M12 4l4.5 4.5" stroke-linecap="round" stroke-linejoin="round"/>
+              <path d="M5 14.5v4A1.5 1.5 0 0 0 6.5 20h11a1.5 1.5 0 0 0 1.5-1.5v-4" stroke-linecap="round"/>
+            </svg>
+          </div>
+          <div class="upload-zone__copy">
+            <strong>Add your first document</strong>
+            <span>Drop files here or <em>browse</em></span>
+          </div>
+          <span class="upload-zone__formats">PDF <i></i> TXT <i></i> MD <span>· up to {{ config.MAX_CONTENT_LENGTH // (1024 * 1024) }} MB</span></span>
+          <p class="upload-status" id="uploadStatus" aria-live="polite" hidden></p>
+        </div>
+
+        <div class="library-heading">
+          <h2>Library</h2>
+          <span class="library-count" id="docCount">0</span>
+        </div>
+        <div class="document-list" id="docItems" role="list" aria-label="Your uploaded documents">
+          <div class="empty-library" id="emptyState">
+            <span class="empty-library__icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                <path d="M7 3.75h7l5 5v11.5H7a2 2 0 0 1-2-2v-12.5a2 2 0 0 1 2-2Z" stroke-linejoin="round"/>
+                <path d="M14 4v5h5M9 14h7M9 17h5" stroke-linecap="round"/>
+              </svg>
+            </span>
+            <strong>Your library is empty</strong>
+            <span>Add a file to get started.</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="sidebar__bottom">
+        <div class="privacy-card">
+          <span class="privacy-card__icon" aria-hidden="true">
+            <svg viewBox="0 0 20 20" fill="none"><path d="M10 2.5 3.75 5v4.6c0 3.6 2.55 6.6 6.25 7.9 3.7-1.3 6.25-4.3 6.25-7.9V5L10 2.5Z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/><path d="m7.5 9.9 1.7 1.7 3.4-3.7" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </span>
+          <span><strong>Private by design</strong><small>Your library is isolated to this browser.</small></span>
+        </div>
+        <button class="clear-button" id="clearAllBtn" type="button" disabled>
+          <svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M3.5 5.5h13M8 5.5V3.75h4V5.5m3.5 0-.7 10.2a1.5 1.5 0 0 1-1.5 1.4H6.7a1.5 1.5 0 0 1-1.5-1.4L4.5 5.5m3.25 3.25v5m4.5-5v5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          Clear library
+        </button>
+        <div class="sidebar-footnote">LOCAL NLP <span>•</span> NO API KEYS</div>
+      </div>
+    </aside>
+
+    <div class="sidebar-overlay" id="sidebarOverlay" aria-hidden="true"></div>
+
+    <main class="main-panel">
+      <header class="topbar">
+        <div class="topbar__heading">
+          <span class="topbar__eyebrow">YOUR PERSONAL KNOWLEDGE SPACE</span>
+          <h1>Ask your documents<span class="heading-period">.</span></h1>
+          <p id="activeDocLabel">Search your library or choose a document to focus your answer.</p>
+        </div>
+        <div class="topbar__actions">
+          <span class="privacy-chip"><span class="privacy-chip__sparkle">✳</span> Nothing leaves this app</span>
+          <button class="icon-button" id="themeToggle" type="button" aria-label="Switch to light theme" title="Toggle appearance">
+            <svg class="icon-sun" viewBox="0 0 20 20" fill="none" aria-hidden="true"><circle cx="10" cy="10" r="3.3" stroke="currentColor" stroke-width="1.5"/><path d="M10 1.75v1.5m0 13.5v1.5m8.25-8.25h-1.5m-13.5 0h-1.5m14.08-5.83-1.06 1.06M5.23 14.77l-1.06 1.06m11.66 0-1.06-1.06M5.23 5.23 4.17 4.17" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+            <svg class="icon-moon" viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M16.9 12.15A7.45 7.45 0 0 1 7.85 3.1a7.5 7.5 0 1 0 9.05 9.05Z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>
+          </button>
+          <button class="icon-button mobile-menu-button" id="mobileSidebarToggle" type="button" aria-label="Open document library" aria-expanded="false">
+            <svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M3 5h14M3 10h14M3 15h14" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+          </button>
+        </div>
+      </header>
+
+      <section class="chat-area" id="chatArea" aria-label="Document conversation">
+        <div class="welcome" id="welcomeScreen">
+          <div class="welcome__eyebrow"><span class="welcome__eyebrow-dot"></span> YOUR DOCS, ON YOUR TERMS</div>
+          <div class="welcome__visual" aria-hidden="true">
+            <div class="visual-ring visual-ring--outer"></div>
+            <div class="visual-ring visual-ring--inner"></div>
+            <div class="visual-core">
+              <svg viewBox="0 0 52 52" fill="none"><path d="M14 8.5h15l9 9v26H14a3 3 0 0 1-3-3v-29a3 3 0 0 1 3-3Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M29 9v9h9M18 25h15M18 30h11" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><circle cx="35.5" cy="35.5" r="7.5" fill="#171324" stroke="currentColor" stroke-width="1.5"/><path d="M35.5 32v7m-3.5-3.5h7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+            </div>
+            <span class="visual-spark visual-spark--one"></span><span class="visual-spark visual-spark--two"></span><span class="visual-spark visual-spark--three"></span>
+          </div>
+          <h2>A library that<br><span>talks back.</span></h2>
+          <p class="welcome__description">Add a PDF, note or report. Ask naturally. Get a clear answer grounded in the actual text—with the source right there.</p>
+          <div class="suggestions" id="suggestions" aria-label="Try a sample question">
+            <button class="suggestion" type="button" data-question="Give me a concise summary of this document."><span class="suggestion__icon">↗</span> Summarize the key points</button>
+            <button class="suggestion" type="button" data-question="What are the main conclusions?"><span class="suggestion__icon">✳</span> Find the main conclusions</button>
+            <button class="suggestion" type="button" data-question="What important terms are defined in this document?"><span class="suggestion__icon">⌕</span> Explain key terms</button>
+            <button class="suggestion" type="button" data-question="What numbers or statistics are mentioned?"><span class="suggestion__icon">#</span> Pull out the stats</button>
+          </div>
+          <div class="capabilities">
+            <span><i class="capability-dot capability-dot--purple"></i> Local TF-IDF search</span>
+            <span><i class="capability-dot capability-dot--green"></i> No external APIs</span>
+            <span><i class="capability-dot capability-dot--orange"></i> Source-backed answers</span>
+          </div>
+        </div>
+        <div class="messages" id="messages" role="log" aria-live="polite" aria-relevant="additions text" hidden></div>
+      </section>
+
+      <form class="composer" id="composer" aria-label="Ask a question about your documents">
+        <div class="composer__frame">
+          <label class="sr-only" for="queryInput">Your question</label>
+          <textarea id="queryInput" rows="1" maxlength="2000" placeholder="Upload a document to start asking…" autocomplete="off" disabled></textarea>
+          <button class="send-button" id="sendBtn" type="submit" aria-label="Send question" disabled>
+            <svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M17.6 2.7 9.5 17.4l-1.3-6.1L2 9.5l15.6-6.8Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="m8.2 11.3 4.1-4.1" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+          </button>
+        </div>
+        <div class="composer__footer"><span>Enter to send <i>·</i> Shift + Enter for a new line</span><span class="composer__mode"><span></span> EVIDENCE-FIRST MODE</span></div>
+      </form>
+    </main>
+  </div>
+
+  <div class="toast-region" id="toastContainer" aria-live="polite" aria-atomic="true"></div>
+  <script src="{{ url_for('static', filename='app.js') }}" defer></script>
+</body>
+</html>
