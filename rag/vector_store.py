@@ -113,6 +113,10 @@ class VectorStore:
                 results.append({**self.chunks[vid], "score": round(float(score), 4)})
             return results
 
+    def all_chunks(self):
+        with self._lock:
+            return [dict(c) for c in self.chunks.values()]
+
     def list_documents(self):
         with self._lock:
             return sorted(self.documents.values(), key=lambda d: d["uploaded_at"])

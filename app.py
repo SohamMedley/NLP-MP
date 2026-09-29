@@ -174,7 +174,7 @@ def ask():
 
     relevant, candidates, search_query = retrieve(question, history)
     retrieval = [{"document": c["document"], "page": c["page"], "score": c["score"],
-                  "text": c["text"], "used": c in relevant} for c in candidates]
+                  "text": c["text"], "used": any(c["doc_id"] == r["doc_id"] and c["chunk_index"] == r["chunk_index"] for r in relevant)} for c in candidates]
 
     # Hallucination control #1: skip the LLM entirely when nothing is relevant enough.
     if not relevant:
