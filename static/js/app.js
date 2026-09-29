@@ -391,7 +391,8 @@
     const sources = turn.sources || [];
     const retrieval = turn.retrieval || [];
     body.append(h("div", { class: "ev-summary" },
-      h("span", {}, h("b", {}, sources.length), sources.length === 1 ? " source used" : " sources used"),
+      h("span", {}, h("b", {}, sources.length || turn.checked.length),
+        sources.length ? (sources.length === 1 ? " source used" : " sources used") : " checked"),
       h("span", {}, "·"),
       h("span", {}, h("b", {}, retrieval.length), " retrieved")));
 
@@ -403,9 +404,15 @@
       body.append(h("div", { class: "ev-section" }, "Cited passages"));
       sources.forEach((s) => body.append(evidenceCard({ n: s.number, document: s.document, page: s.page, score: s.score,
         text: s.excerpt, tag: debug ? (s.score > 0 ? "used" : "overview") : null })));
+    } else if (turn.checked.length && !debug) {
+      body.append(h("p", { class: "muted", style: "font-size:12.5px;padding:0 2px" },
+        "These passages were checked, but they don't contain the answer."),
+        h("div", { class: "ev-section" }, "Checked passages"));
+      turn.checked.forEach((s) => body.append(evidenceCard({ n: s.number, document: s.document, page: s.page,
+        score: s.score, text: s.excerpt, tag: "dropped" })));
     } else if (!debug) {
       body.append(h("div", { class: "evidence-empty" },
-        h("p", {}, "No passages were relevant enough to ground an answer. Turn on Retrieval debug to inspect what was retrieved.")));
+        h("p", {}, "No passage was similar enough to your question, so the LLM was not called. Try rephrasing, or turn on Retrieval debug to inspect scores.")));
     }
 
     if (debug) {
@@ -481,16 +488,20 @@
   }
 
   function fillAnswer(node, question, data) {
-    const turn = { node, question, sources: data.sources || [], retrieval: data.retrieval || [], searchQuery: data.search_query };
+    const turn = { node, question, sources: data.sources || [], checked: data.checked || [],
+      retrieval: data.retrieval || [], searchQuery: data.search_query };
     state.turns.push(turn);
     const main = node.querySelector(".ai-main");
-    const grounded = data.grounded;
+    const status = data.status || (data.grounded ? "grounded" : "not_found");
+    const grounded = status !== "not_found";
 
     const head = h("div", { class: "ai-head" },
       h("strong", {}, "DocuRAG"),
-      grounded
+      status === "grounded"
         ? h("span", { class: "badge grounded" }, icon(ICONS.check, 12, 2.6), `Grounded in ${plural(turn.sources.length, "source")}`)
-        : h("span", { class: "badge notfound" }, "Not found in documents"));
+        : status === "partial"
+          ? h("span", { class: "badge partial" }, `Partially answered · ${plural(turn.sources.length, "source")}`)
+          : h("span", { class: "badge notfound" }, "Not found in documents"));
 
     const answer = h("div", { class: `answer md ${grounded ? "" : "notfound"}` });
     answer.innerHTML = renderMarkdown(data.answer); // safe: escaped before formatting

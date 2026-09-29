@@ -1,5 +1,6 @@
 """DocuRAG - Flask entry point (API routes + frontend)."""
 import logging
+import re
 import os
 import tempfile
 import threading
@@ -14,7 +15,7 @@ from rag import config
 from rag.embeddings import embed_texts, get_model
 from rag.generator import NOT_FOUND_MESSAGE, GenerationError, active_model, generate_answer
 from rag.pipeline import ingest_pdf
-from rag.retriever import build_context, retrieve
+from rag.retriever import build_context, is_broad_question, retrieve
 from rag.vector_store import store
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -179,19 +180,32 @@ def ask():
     # Hallucination control #1: skip the LLM entirely when nothing is relevant enough.
     if not relevant:
         return jsonify({"success": True, "answer": LOW_RELEVANCE_MESSAGE, "grounded": False,
+                        "status": "not_found", "checked": [],
                         "sources": [], "retrieval": retrieval, "search_query": search_query})
 
     try:
-        answer = generate_answer(question, build_context(relevant), history)
+        answer = generate_answer(question, build_context(relevant), history,
+                                 broad=is_broad_question(question))
     except GenerationError as exc:
         return jsonify({"success": False, "error": str(exc), "retrieval": retrieval}), 502
 
-    not_found = NOT_FOUND_MESSAGE.lower().rstrip(".") in answer.lower()
+    # Grounding status: "grounded", "partial" (not-found sentence + useful cited detail),
+    # or "not_found" (the model only said the answer is not in the documents).
+    mentions_not_found = NOT_FOUND_MESSAGE.lower().rstrip(".") in answer.lower()
+    cites = bool(re.search(r"source\s*\d", answer, re.I))
+    if not mentions_not_found:
+        status = "grounded"
+    elif cites or len(answer) > len(NOT_FOUND_MESSAGE) + 120:
+        status = "partial"
+    else:
+        status = "not_found"
     sources = [{"number": i, "document": c["document"], "page": c["page"],
                 "score": c["score"], "excerpt": c["text"]}
                for i, c in enumerate(relevant, start=1)]
-    return jsonify({"success": True, "answer": answer, "grounded": not not_found,
-                    "sources": [] if not_found else sources,
+    return jsonify({"success": True, "answer": answer, "status": status,
+                    "grounded": status != "not_found",
+                    "sources": [] if status == "not_found" else sources,
+                    "checked": sources if status == "not_found" else [],
                     "retrieval": retrieval, "search_query": search_query})
 
 

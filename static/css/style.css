@@ -427,3 +427,4 @@ kbd { font: 500 11px var(--mono); background: var(--paper); border: 1px solid va
 
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
 .turn-ai.selected .ai-mark { background: var(--accent); }
+.badge.partial { background: var(--accent-soft); color: var(--accent-ink); }

@@ -17,7 +17,10 @@ Rules:
 4. Cite sources inline using their numbers, e.g. [Source 2], whenever you use them.
 5. Be concise but useful. Preserve important technical terminology exactly as written in the documents.
 6. Format with Markdown when helpful: short paragraphs, bullet or numbered lists, **bold** key terms, code blocks for code.
-7. Earlier conversation is provided only to resolve references such as "it" or "that"; facts must still come from the context."""
+7. For overview requests (summarize, main concepts, key findings, conclusion), synthesise the answer from the
+   supplied passages. If the document has no explicit conclusion or findings section, say so in one short clause and then
+   give a concluding summary of what the passages cover. Never answer an overview request with only the not-found sentence.
+8. Earlier conversation is provided only to resolve references such as "it" or "that"; facts must still come from the context."""
 
 HISTORY_TURNS = 3          # keep chat memory bounded (last 3 question/answer pairs)
 HISTORY_CHARS = 1200       # truncate long previous answers
@@ -91,14 +94,15 @@ def active_model() -> str:
     return _working_model or config.GROQ_MODEL
 
 
-def generate_answer(question: str, context: str, history: list[dict]) -> str:
+def generate_answer(question: str, context: str, history: list[dict], broad: bool = False) -> str:
     global _working_model
     messages = [{"role": "system", "content": SYSTEM_PROMPT}]
     messages += _bounded_history(history)
     messages.append({
         "role": "user",
         "content": f"Document context:\n\n{context}\n\n---\nQuestion: {question}\n\n"
-                   "Answer using only the document context above.",
+                   "Answer using only the document context above."
+                   + (" This is an overview request: synthesise across the passages (rule 7)." if broad else ""),
     })
     candidates = [active_model()] + [m for m in FALLBACK_MODELS if m != active_model()]
     last_exc = None
