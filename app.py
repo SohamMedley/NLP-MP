@@ -14,7 +14,7 @@ from werkzeug.utils import secure_filename
 from rag import config
 from rag.embeddings import embed_texts, get_model
 from rag.generator import NOT_FOUND_MESSAGE, GenerationError, active_model, generate_answer
-from rag.pipeline import ingest_pdf
+from rag.pipeline import ingest_document
 from rag.retriever import build_context, is_broad_question, retrieve
 from rag.vector_store import store
 
@@ -54,14 +54,14 @@ def _run_ingestion(job_id, saved_files):
     for position, (temp_path, filename) in enumerate(saved_files, start=1):
         _update_job(job_id, current_file=filename, file_index=position)
         try:
-            result = ingest_pdf(temp_path, filename,
+            result = ingest_document(temp_path, filename,
                                 on_stage=lambda stage: _update_job(job_id, stage=stage))
         except ValueError as exc:
             result = {"filename": filename, "status": "error", "message": str(exc)}
         except Exception:
             logger.exception("Failed to process %s", filename)
             result = {"filename": filename, "status": "error",
-                      "message": "Unexpected error while processing this PDF."}
+                      "message": "Unexpected error while processing this file."}
         finally:
             # Uploaded PDFs are only needed during processing.
             try:
@@ -92,23 +92,29 @@ def health():
 def upload():
     files = [f for f in request.files.getlist("files") if f and f.filename]
     if not files:
-        return error("Please choose at least one PDF file.", 400)
+        return error("Please choose at least one PDF or TXT file.", 400)
 
     saved, rejected = [], []
     for file in files:
-        filename = secure_filename(file.filename) or "document.pdf"
-        if not filename.lower().endswith(".pdf"):
+        filename = secure_filename(file.filename) or "document"
+        extension = os.path.splitext(filename)[1].lower()
+        if extension not in (".pdf", ".txt"):
             rejected.append({"filename": file.filename, "status": "error",
-                             "message": "Only PDF files are supported."})
+                             "message": "Only PDF and TXT files are supported."})
             continue
-        # Check the PDF magic number, not just the extension.
-        if file.stream.read(5) != b"%PDF-":
-            rejected.append({"filename": filename, "status": "error",
-                             "message": "Only PDF files are supported (invalid PDF content)."})
-            continue
+        # Check the content, not just the extension.
+        head = file.stream.read(4096)
         file.stream.seek(0)
+        if extension == ".pdf" and not head.startswith(b"%PDF-"):
+            rejected.append({"filename": filename, "status": "error",
+                             "message": "This file is not a valid PDF."})
+            continue
+        if extension == ".txt" and b"\x00" in head and not head.startswith((b"\xff\xfe", b"\xfe\xff")):
+            rejected.append({"filename": filename, "status": "error",
+                             "message": "This file is not a plain-text document."})
+            continue
         # Random temp name inside uploads/ - user input never becomes a path.
-        fd, temp_path = tempfile.mkstemp(suffix=".pdf", dir=config.UPLOAD_DIR)
+        fd, temp_path = tempfile.mkstemp(suffix=extension, dir=config.UPLOAD_DIR)
         with os.fdopen(fd, "wb") as out:
             file.save(out)
         saved.append((temp_path, filename))
@@ -171,10 +177,11 @@ def ask():
     if len(question) > MAX_QUESTION_CHARS:
         return error(f"Questions are limited to {MAX_QUESTION_CHARS} characters.", 400)
     if not store.stats()["index_ready"]:
-        return error("Please upload at least one PDF before asking a question.", 400)
+        return error("Please upload at least one PDF or TXT file before asking a question.", 400)
 
     relevant, candidates, search_query = retrieve(question, history)
     retrieval = [{"document": c["document"], "page": c["page"], "score": c["score"],
+                  "unit": c.get("unit", "Page"),
                   "text": c["text"], "used": any(c["doc_id"] == r["doc_id"] and c["chunk_index"] == r["chunk_index"] for r in relevant)} for c in candidates]
 
     # Hallucination control #1: skip the LLM entirely when nothing is relevant enough.
@@ -200,6 +207,7 @@ def ask():
     else:
         status = "not_found"
     sources = [{"number": i, "document": c["document"], "page": c["page"],
+                "unit": c.get("unit", "Page"),
                 "score": c["score"], "excerpt": c["text"]}
                for i, c in enumerate(relevant, start=1)]
     return jsonify({"success": True, "answer": answer, "status": status,

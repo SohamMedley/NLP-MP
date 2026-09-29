@@ -73,5 +73,5 @@ def build_context(chunks: list[dict]) -> str:
     blocks = []
     for number, chunk in enumerate(chunks, start=1):
         blocks.append(f"[Source {number}]\nDocument: {chunk['document']}\n"
-                      f"Page: {chunk['page']}\nContent:\n{chunk['text']}")
+                      f"{chunk.get('unit', 'Page')}: {chunk['page']}\nContent:\n{chunk['text']}")
     return "\n\n".join(blocks)

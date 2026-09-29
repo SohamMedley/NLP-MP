@@ -48,3 +48,44 @@ def extract_pages(pdf_path: str) -> tuple[list[dict], int]:
         raise ValueError("This PDF does not contain enough extractable text "
                          "(it may be a scanned image).")
     return pages, total_pages
+
+
+TXT_SECTION_CHARS = 3000  # plain text has no pages, so it is split into numbered sections
+
+
+def _decode_text(raw: bytes) -> str:
+    for encoding in ("utf-8-sig", "utf-16", "cp1252", "latin-1"):
+        try:
+            text = raw.decode(encoding)
+            if encoding == "utf-16" and not raw.startswith((b"\xff\xfe", b"\xfe\xff")):
+                continue  # only trust UTF-16 when a BOM is present
+            return text
+        except UnicodeDecodeError:
+            continue
+    raise ValueError("The text file could not be decoded.")
+
+
+def extract_text_sections(txt_path: str) -> tuple[list[dict], int]:
+    """Read a .txt file and split it into ~3000-character sections on paragraph
+    boundaries. Sections play the role of pages for citations ("Section 2")."""
+    with open(txt_path, "rb") as fh:
+        raw = fh.read()
+    # Form feeds (\f) are real page breaks in some exported text files.
+    text = _decode_text(raw)
+    sections, current = [], ""
+    for block in re.split(r"\f|\n\s*\n", text):
+        block = block.strip()
+        if not block:
+            continue
+        if current and len(current) + len(block) > TXT_SECTION_CHARS:
+            sections.append(current)
+            current = block
+        else:
+            current = f"{current}\n\n{block}" if current else block
+    if current:
+        sections.append(current)
+    pages = [{"page": i + 1, "text": clean_text(s)} for i, s in enumerate(sections)]
+    pages = [p for p in pages if p["text"]]
+    if sum(len(p["text"]) for p in pages) < MIN_DOCUMENT_CHARS:
+        raise ValueError("This text file does not contain enough text.")
+    return pages, len(pages)

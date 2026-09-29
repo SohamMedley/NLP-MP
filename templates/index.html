@@ -39,17 +39,17 @@
     <aside class="panel sources-panel" aria-label="Sources">
       <div class="panel-head">
         <h2 class="panel-title">Sources</h2>
-        <p class="panel-sub">PDFs are embedded locally and searched by meaning.</p>
+        <p class="panel-sub">PDF &amp; TXT files are embedded locally and searched by meaning.</p>
       </div>
 
-      <div class="dropzone" id="dropzone" tabindex="0" role="button" aria-label="Add PDF files. Drop here or press Enter to browse">
+      <div class="dropzone" id="dropzone" tabindex="0" role="button" aria-label="Add PDF or TXT files. Drop here or press Enter to browse">
         <div class="dz-illus" aria-hidden="true">
           <span class="sheet s1"></span><span class="sheet s2"></span>
           <span class="sheet s3"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 6v12M6 12h12"/></svg></span>
         </div>
-        <p class="dz-title">Drop PDFs here</p>
+        <p class="dz-title">Drop PDF or TXT files</p>
         <p class="dz-hint">or <span class="link">browse files</span> · max {{ max_upload_mb }} MB</p>
-        <input type="file" id="fileInput" accept="application/pdf,.pdf" multiple hidden>
+        <input type="file" id="fileInput" accept="application/pdf,.pdf,text/plain,.txt" multiple hidden>
       </div>
 
       <!-- Live ingestion stepper (driven by real server stages) -->
@@ -61,7 +61,7 @@
         <div class="bar"><div class="bar-fill" id="progressBar"></div></div>
         <ol class="steps" id="steps">
           <li data-step="0">Upload</li>
-          <li data-step="1">Read PDF</li>
+          <li data-step="1">Read file</li>
           <li data-step="2">Extract text</li>
           <li data-step="3">Chunk</li>
           <li data-step="4">Embed</li>
@@ -101,7 +101,7 @@
       <details class="how">
         <summary>How DocuRAG answers</summary>
         <ol class="how-flow">
-          <li><b>Extract</b> text page by page (PyMuPDF)</li>
+          <li><b>Extract</b> text page by page (PyMuPDF) or by section (TXT)</li>
           <li><b>Clean</b> and normalise the text</li>
           <li><b>Chunk</b> into overlapping, sentence-aware passages</li>
           <li><b>Embed</b> locally with all-MiniLM-L6-v2</li>
@@ -132,11 +132,11 @@
         <section class="welcome" id="welcome">
           <p class="eyebrow">Document-grounded answers</p>
           <h2 class="welcome-title">Ask your documents,<br><em>get cited answers.</em></h2>
-          <p class="welcome-text" id="welcomeText">Add PDFs to your sources. DocuRAG retrieves the most relevant passages and answers only from them, with page-level citations you can inspect.</p>
+          <p class="welcome-text" id="welcomeText">Add PDF or TXT files to your sources. DocuRAG retrieves the most relevant passages and answers only from them, with page-level citations you can inspect.</p>
 
           <button type="button" class="btn btn-ink welcome-cta" id="welcomeUpload">
             <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
-            Add your first PDF
+            Add your first document
           </button>
 
           <div class="suggestions hidden" id="suggestions">
@@ -158,7 +158,7 @@
 
       <form class="composer" id="composer" autocomplete="off">
         <div class="composer-card">
-          <textarea id="questionInput" rows="1" maxlength="2000" placeholder="Add a PDF to start asking…" aria-label="Your question" disabled></textarea>
+          <textarea id="questionInput" rows="1" maxlength="2000" placeholder="Add a PDF or TXT file to start asking…" aria-label="Your question" disabled></textarea>
           <div class="composer-row">
             <span class="composer-hint">Answers use only your documents · <kbd>Enter</kbd> to send, <kbd>Shift</kbd>+<kbd>Enter</kbd> for new line</span>
             <button type="submit" class="send" id="sendBtn" disabled aria-label="Send question">

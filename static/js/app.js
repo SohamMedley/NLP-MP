@@ -169,10 +169,10 @@
   /* ================= documents ================= */
   function renderDocuments(documents, stats) {
     el.docList.replaceChildren(...documents.map((doc) => h("li", { class: "doc", style: `--doc-tint:${tintFor(doc.filename)}` },
-      h("div", { class: "doc-thumb", "aria-hidden": "true" }),
+      h("div", { class: `doc-thumb ${doc.type === "txt" ? "txt" : ""}`, "aria-hidden": "true" }),
       h("div", { class: "doc-meta" },
         h("div", { class: "doc-name", title: doc.filename }, doc.filename),
-        h("div", { class: "doc-sub" }, `${plural(doc.pages, "page")} · ${plural(doc.chunks, "chunk")}`)),
+        h("div", { class: "doc-sub" }, `${(doc.type || "pdf").toUpperCase()} · ${plural(doc.pages, (doc.unit || "Page").toLowerCase())} · ${plural(doc.chunks, "chunk")}`)),
       h("button", { class: "icon-btn", type: "button", title: `Remove ${doc.filename}`,
         "aria-label": `Remove ${doc.filename}`, onclick: () => removeDocument(doc) }, icon(ICONS.close, 15)))));
 
@@ -193,7 +193,7 @@
     el.welcomeUpload.classList.toggle("hidden", stats.index_ready);
     el.welcomeText.textContent = stats.index_ready
       ? `${plural(stats.documents, "document")} indexed and ready. Pick a starter question or ask your own. Every answer links to the exact passages it used.`
-      : "Add PDFs to your sources. DocuRAG retrieves the most relevant passages and answers only from them, with page-level citations you can inspect.";
+      : "Add PDF or TXT files to your sources. DocuRAG retrieves the most relevant passages and answers only from them, with page-level citations you can inspect.";
     updateComposer();
   }
 
@@ -233,7 +233,7 @@
   });
 
   /* ================= upload ================= */
-  const STAGES = ["Reading PDF...", "Extracting text...", "Creating chunks...", "Generating embeddings...", "Building semantic index..."];
+  const STAGES = ["Reading file...", "Extracting text...", "Creating chunks...", "Generating embeddings...", "Building semantic index..."];
 
   function note(kind, text) { el.uploadMessages.append(h("div", { class: `note ${kind}` }, text)); }
 
@@ -303,13 +303,13 @@
     const valid = [];
     let totalBytes = 0;
     for (const file of files) {
-      if (!file.name.toLowerCase().endsWith(".pdf")) { note("err", `${file.name}: only PDF files are supported.`); continue; }
+      if (!/\.(pdf|txt)$/i.test(file.name)) { note("err", `${file.name}: only PDF and TXT files are supported.`); continue; }
       if (file.size === 0) { note("err", `${file.name}: file is empty.`); continue; }
       totalBytes += file.size;
       valid.push(file);
     }
     if (!valid.length) return;
-    if (totalBytes > MAX_MB * 1024 * 1024) { note("err", `Selected files exceed the ${MAX_MB} MB limit. Upload fewer or smaller PDFs.`); return; }
+    if (totalBytes > MAX_MB * 1024 * 1024) { note("err", `Selected files exceed the ${MAX_MB} MB limit. Upload fewer or smaller files.`); return; }
 
     const form = new FormData();
     valid.forEach((f) => form.append("files", f));
@@ -322,7 +322,7 @@
       (rejected || []).forEach((r) => note("err", `${r.filename}: ${r.message}`));
       const job = await pollJob(jobId);
       for (const r of job.results) {
-        if (r.status === "indexed") note("ok", `${r.filename} · ${plural(r.pages, "page")}, ${plural(r.chunks, "chunk")}`);
+        if (r.status === "indexed") note("ok", `${r.filename} · ${plural(r.pages, r.filename.toLowerCase().endsWith(".txt") ? "section" : "page")}, ${plural(r.chunks, "chunk")}`);
         else if (r.status === "duplicate") note("warn", `${r.filename}: already indexed, skipped.`);
         else note("err", `${r.filename}: ${r.message}`);
       }
@@ -361,13 +361,13 @@
       h("div", { class: "ev-meter" }, h("i", { class: cls, style: `width:${score > 0 ? pct : 0}%` })));
   }
 
-  function evidenceCard({ n, document: docName, page, score, text, tag }) {
+  function evidenceCard({ n, document: docName, page, unit = "Page", score, text, tag }) {
     const card = h("article", { class: `ev-card ${tag === "dropped" ? "unused" : ""}`, "data-n": n ?? "" },
       h("div", { class: "ev-top" },
         h("span", { class: "ev-n", style: tag === "dropped" ? null : `background:${tintFor(docName)}` }, n ?? "·"),
         h("div", { class: "ev-title" },
           h("div", { class: "ev-doc", title: docName }, docName),
-          h("div", { class: "ev-page" }, `Page ${page}`)),
+          h("div", { class: "ev-page" }, `${unit} ${page}`)),
         meter(score)),
       h("div", { class: "ev-text" }, text));
     const more = h("button", { type: "button", class: "ev-more" }, "Show full passage");
@@ -402,13 +402,13 @@
 
     if (sources.length) {
       body.append(h("div", { class: "ev-section" }, "Cited passages"));
-      sources.forEach((s) => body.append(evidenceCard({ n: s.number, document: s.document, page: s.page, score: s.score,
+      sources.forEach((s) => body.append(evidenceCard({ n: s.number, document: s.document, page: s.page, unit: s.unit, score: s.score,
         text: s.excerpt, tag: debug ? (s.score > 0 ? "used" : "overview") : null })));
     } else if (turn.checked.length && !debug) {
       body.append(h("p", { class: "muted", style: "font-size:12.5px;padding:0 2px" },
         "These passages were checked, but they don't contain the answer."),
         h("div", { class: "ev-section" }, "Checked passages"));
-      turn.checked.forEach((s) => body.append(evidenceCard({ n: s.number, document: s.document, page: s.page,
+      turn.checked.forEach((s) => body.append(evidenceCard({ n: s.number, document: s.document, page: s.page, unit: s.unit,
         score: s.score, text: s.excerpt, tag: "dropped" })));
     } else if (!debug) {
       body.append(h("div", { class: "evidence-empty" },
@@ -419,7 +419,7 @@
       const dropped = retrieval.filter((r) => !r.used);
       body.append(h("div", { class: "ev-section" }, `All retrieved chunks (${retrieval.length})`));
       if (!retrieval.length) body.append(h("div", { class: "evidence-empty" }, h("p", {}, "No chunks retrieved.")));
-      retrieval.forEach((r, i) => body.append(evidenceCard({ n: i + 1, document: r.document, page: r.page, score: r.score,
+      retrieval.forEach((r, i) => body.append(evidenceCard({ n: i + 1, document: r.document, page: r.page, unit: r.unit, score: r.score,
         text: r.text, tag: r.used ? "used" : "dropped" })));
       if (dropped.length) body.append(h("p", { class: "muted", style: "font-size:12px;padding:0 2px" },
         `${plural(dropped.length, "chunk")} scored below the similarity threshold and were not sent to the LLM.`));
@@ -450,7 +450,7 @@
   /* ================= chat ================= */
   function updateComposer() {
     el.input.disabled = !state.indexReady;
-    el.input.placeholder = state.indexReady ? "Ask anything about your documents…" : "Add a PDF to start asking…";
+    el.input.placeholder = state.indexReady ? "Ask anything about your documents…" : "Add a PDF or TXT file to start asking…";
     el.sendBtn.disabled = !state.indexReady || state.busyAsk || !el.input.value.trim();
     el.clearChatBtn.disabled = state.turns.length === 0 && !el.messages.querySelector(".turn-user");
   }
@@ -513,11 +513,11 @@
     const parts = [head, answer];
     if (turn.sources.length) {
       parts.push(h("div", { class: "src-row" }, turn.sources.map((s) =>
-        h("button", { type: "button", class: "src-chip", "data-n": s.number, title: `${s.document}, page ${s.page}`,
+        h("button", { type: "button", class: "src-chip", "data-n": s.number, title: `${s.document}, ${(s.unit || "Page").toLowerCase()} ${s.page}`,
           onclick: () => showEvidence(turn, s.number) },
           h("span", { class: "src-n", style: `background:${tintFor(s.document)};color:#fff` }, s.number),
           h("span", { class: "src-doc" }, s.document),
-          h("span", { class: "src-pg" }, `p.${s.page}`)))));
+          h("span", { class: "src-pg" }, `${s.unit === "Section" ? "§" : "p."}${s.page}`)))));
     }
     parts.push(h("div", { class: "ai-tools" },
       copyButton(data.answer),

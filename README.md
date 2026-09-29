@@ -16,7 +16,7 @@ This project shows the full **Retrieval-Augmented Generation (RAG)** pipeline as
 
 ## 3. Features
 
-- Upload several PDFs by drag and drop or file browser, with type and size checks
+- Upload several **PDF or TXT** files by drag and drop or file browser, with type, content and size checks. TXT files are split into numbered *sections* that act as pages for citations, and several text encodings are accepted (UTF-8, UTF-16 with BOM, Windows-1252).
 - Live processing stages from the server: *Reading PDF → Extracting text → Creating chunks → Generating embeddings → Building semantic index → Ready*
 - Text extraction that keeps page numbers, plus text cleaning
 - Sentence-aware chunking with overlap. Chunks never cross page boundaries, so citations are exact.
@@ -41,7 +41,7 @@ This project shows the full **Retrieval-Augmented Generation (RAG)** pipeline as
 | Frontend | HTML5, CSS3 (CSS variables), Vanilla JS | Required; no frameworks |
 | Backend | Python 3.11, Flask | REST API and serves the UI |
 | Production server | Gunicorn | WSGI server for Render |
-| PDF extraction | PyMuPDF (`pymupdf`) | Fast, free, extracts page by page |
+| PDF / TXT extraction | PyMuPDF (`pymupdf`) + Python text decoding | Fast, free, extracts page by page (PDF) or section by section (TXT) |
 | Embeddings | `sentence-transformers/all-MiniLM-L6-v2` run by **FastEmbed** (ONNX Runtime) | Free, local, 384-dim, small |
 | Vector index | FAISS (`IndexIDMap2(IndexFlatIP)`) | Exact cosine search; supports deleting by id |
 | LLM | Groq API (default `openai/gpt-oss-20b`, configurable) | Fast; free tier available |
