@@ -429,3 +429,17 @@ kbd { font: 500 11px var(--mono); background: var(--paper); border: 1px solid va
 .turn-ai.selected .ai-mark { background: var(--accent); }
 .badge.partial { background: var(--accent-soft); color: var(--accent-ink); }
 .doc-thumb.txt::after { content: "TXT"; }
+
+/* Answer-engine switch */
+.composer-row { justify-content: flex-start; }
+.composer-row .send { margin-left: auto; }
+.mode { display: inline-flex; background: var(--sunken); border-radius: 10px; padding: 3px; gap: 2px; flex: none; }
+.mode-opt { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px; border: 0; border-radius: 8px; background: transparent; color: var(--ink-3); font-size: 12.5px; font-weight: 550; cursor: pointer; transition: background .15s, color .15s; white-space: nowrap; }
+.mode-opt:hover { color: var(--ink); }
+.mode-opt.active { background: var(--paper); color: var(--ink); box-shadow: var(--sh-1); }
+.mode-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--ink-4); }
+.mode-opt[data-mode="llm"].active .mode-dot { background: var(--accent); }
+.mode-opt[data-mode="local"].active .mode-dot { background: #12a594; }
+.badge.mode-local { background: #e6f6f4; color: #0d7d70; }
+.badge.mode-llm { background: var(--sunken); color: var(--ink-2); }
+@media (max-width: 420px) { .mode-opt { padding: 0 8px; font-size: 12px; } }

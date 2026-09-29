@@ -132,6 +132,20 @@ For **overview questions** like 'Summarize this document' or 'What is the conclu
 
 The API key is stored as an **environment variable** on the server and is never visible in the browser."
 
+**Two answer engines — with and without an API**
+
+"Ma'am, we also built a **Local NLP mode** that works **without any API**. There's a switch in the chat box: *Groq LLM* or *Local NLP*.
+
+In Local NLP mode, everything runs in our Python backend, in `rag/extractive.py`, using classic NLP:
+1. **Sentence segmentation** of the retrieved chunks.
+2. **Tokenization, stop-word removal and stemming.** For example, 'embeddings' becomes 'embed'. We wrote a Porter-style suffix stripper.
+3. **TF-IDF vectors and cosine similarity** between the question and each sentence, which is a **lexical** match.
+4. **Sentence-embedding cosine similarity**, which is a **semantic** match. We combine them as 0.7 × semantic + 0.3 × lexical, a **hybrid ranking**.
+5. **MMR (Maximal Marginal Relevance)** picks supporting sentences that are relevant but don't repeat each other.
+6. For 'Summarize' questions we use **TextRank**: we build a graph where sentences are nodes and similarities are edges, run **PageRank**, and choose the most central sentences from each document. That's **extractive summarization**.
+
+The difference: the LLM mode is **generative**, so it writes new sentences. The local mode is **extractive**, so it only returns real sentences from the document, which means **zero hallucination**."
+
 **Hallucination control — the most important part**
 
 "We reduce hallucination with **four layers**:
@@ -181,9 +195,11 @@ For security, the answer text is **HTML-escaped** before formatting, so the AI's
    *Say:* "It understood that 'it' means BERT. That's our bounded chat memory."
 5. **Out-of-scope:** *"Who won the 2011 Cricket World Cup?"*
    *Say:* "It refuses, because this isn't in our documents. That's hallucination control."
-6. **Turn on Retrieval debug.**
+6. **Switch to Local NLP** and ask *"What is TF-IDF?"*, then *"Summarize the documents"*.
+   *Say:* "No API is called now. The answer is extracted with TF-IDF, stemming, embeddings and TextRank, all in Python. You can see the 'Local NLP' label on the answer."
+7. **Turn on Retrieval debug.**
    *Say:* "Here you can see every retrieved chunk with its cosine similarity score, and which ones were below the threshold and not sent to the LLM."
-7. **Delete a document**, then ask about it again.
+8. **Delete a document**, then ask about it again.
    *Say:* "Its embeddings were removed, so it no longer answers from that file."
 
 **Limitations (be honest, since examiners appreciate it)**
@@ -208,6 +224,9 @@ Thank you, Ma'am. We're happy to take questions."
 
 | Question | Who | Short answer |
 |---|---|---|
+| Which NLP concepts work without the API? | M3 | Local NLP mode: sentence segmentation, tokenization, stop words, stemming, TF-IDF, cosine similarity, embeddings, MMR, TextRank. |
+| Extractive vs abstractive (generative)? | M3 | Extractive picks real sentences (Local NLP); abstractive writes new text (Groq LLM). |
+| What is TextRank? | M3 | PageRank on a sentence-similarity graph; the most "central" sentences form the summary. |
 | What is RAG? | M1 | Retrieve relevant passages first, then generate an answer from them. It reduces hallucination and works on private data. |
 | Why not send the whole PDF to the LLM? | M1 | Token limits, cost and lower accuracy (the model gets distracted), and there would be no precise citation. |
 | Stemming vs lemmatization — did you use them? | M1 | Stemming chops suffixes; lemmatization uses a dictionary. We didn't apply them, because embedding models need natural full sentences. |

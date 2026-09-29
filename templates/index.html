@@ -160,7 +160,15 @@
         <div class="composer-card">
           <textarea id="questionInput" rows="1" maxlength="2000" placeholder="Add a PDF or TXT file to start asking…" aria-label="Your question" disabled></textarea>
           <div class="composer-row">
-            <span class="composer-hint">Answers use only your documents · <kbd>Enter</kbd> to send, <kbd>Shift</kbd>+<kbd>Enter</kbd> for new line</span>
+            <div class="mode" role="radiogroup" aria-label="Answer engine">
+              <button type="button" class="mode-opt active" data-mode="llm" role="radio" aria-checked="true" title="Generative RAG: retrieved passages are sent to an LLM on Groq, which writes a cited answer">
+                <span class="mode-dot"></span>Groq LLM
+              </button>
+              <button type="button" class="mode-opt" data-mode="local" role="radio" aria-checked="false" title="Extractive NLP in Python, no API: TF-IDF, stemming, embeddings, MMR and TextRank pick the best sentences">
+                <span class="mode-dot"></span>Local NLP
+              </button>
+            </div>
+            <span class="composer-hint" id="modeHint">Generative answer via Groq · <kbd>Enter</kbd> to send</span>
             <button type="submit" class="send" id="sendBtn" disabled aria-label="Send question">
               <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5"/><path d="m5 12 7-7 7 7"/></svg>
             </button>

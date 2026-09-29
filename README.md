@@ -82,6 +82,19 @@ Question ──► (follow-up resolution) ──► Query embedding ──► To
 ### Chunk size note
 `CHUNK_SIZE` is measured in **characters** (default 1000 ≈ 180–220 words, overlap 150). all-MiniLM-L6-v2 truncates input at **256 word-piece tokens**. A 1000-word chunk would be silently cut to about its first 200 words before embedding, so most of its text would never be searchable. About 1000 characters fits the model's window, so the whole chunk is represented by its vector.
 
+### Two answer engines (switch in the chat box)
+
+| | **Groq LLM** (generative RAG) | **Local NLP** (extractive QA, no API) |
+|---|---|---|
+| Output | New fluent answer written by `openai/gpt-oss-20b` on Groq | Exact sentences copied from your documents |
+| Needs internet / API key | Yes (Groq) | **No**, runs fully in Python on the server |
+| NLP techniques | Retrieval + prompt engineering + LLM generation | Sentence segmentation, tokenization, stop-word removal, stemming, **TF-IDF + cosine**, sentence embeddings, **MMR**, **TextRank** summarization |
+| Hallucination risk | Low (grounded prompt) | **None**: it can only return text that exists in the documents |
+
+Local NLP pipeline (`rag/extractive.py`): the retrieved chunks are split into sentences, and each sentence is scored as `0.7 × embedding cosine + 0.3 × TF-IDF cosine` against the question. The best sentence becomes the answer, and **MMR** adds non-redundant supporting sentences. For "summarize / main concepts / conclusion" requests it runs **TextRank** (PageRank over the sentence-similarity graph) and picks the most central sentences from **each** document.
+
+If `GROQ_API_KEY` is missing, the UI automatically switches to Local NLP.
+
 ### Hallucination control
 1. **Retrieval threshold** (`MIN_SIMILARITY`, default 0.25). If no chunk passes, the app returns *"I couldn't find sufficiently relevant information in the uploaded documents…"* and Groq is **never called**.
 2. **Grounding prompt.** The model must answer only from the context, must not use outside knowledge, and must reply *"I couldn't find this information in the uploaded documents."* when the context doesn't support an answer.

@@ -13,6 +13,7 @@ from werkzeug.utils import secure_filename
 
 from rag import config
 from rag.embeddings import embed_texts, get_model
+from rag.extractive import extractive_answer
 from rag.generator import NOT_FOUND_MESSAGE, GenerationError, active_model, generate_answer
 from rag.pipeline import ingest_document
 from rag.retriever import build_context, is_broad_question, retrieve
@@ -171,6 +172,8 @@ def ask():
     payload = request.get_json(silent=True) or {}
     question = str(payload.get("question", "")).strip()
     history = payload.get("history") if isinstance(payload.get("history"), list) else []
+    # "llm" = generative RAG via Groq, "local" = extractive NLP in Python (no API).
+    mode = "local" if payload.get("mode") == "local" else "llm"
 
     if not question:
         return error("Please enter a question.", 400)
@@ -187,8 +190,24 @@ def ask():
     # Hallucination control #1: skip the LLM entirely when nothing is relevant enough.
     if not relevant:
         return jsonify({"success": True, "answer": LOW_RELEVANCE_MESSAGE, "grounded": False,
-                        "status": "not_found", "checked": [],
+                        "status": "not_found", "checked": [], "mode": mode,
                         "sources": [], "retrieval": retrieval, "search_query": search_query})
+
+    sources = [{"number": i, "document": c["document"], "page": c["page"],
+                "unit": c.get("unit", "Page"),
+                "score": c["score"], "excerpt": c["text"]}
+               for i, c in enumerate(relevant, start=1)]
+
+    if mode == "local":
+        answer, found = extractive_answer(question, relevant, broad=is_broad_question(question))
+        if not found:
+            return jsonify({"success": True, "answer": LOW_RELEVANCE_MESSAGE, "status": "not_found",
+                            "grounded": False, "sources": [], "checked": sources, "mode": mode,
+                            "retrieval": retrieval, "search_query": search_query})
+        cited = {int(n) for n in re.findall(r"\[Source (\d+)\]", answer)}
+        return jsonify({"success": True, "answer": answer, "status": "grounded", "grounded": True,
+                        "sources": [s for s in sources if s["number"] in cited], "checked": [],
+                        "mode": mode, "retrieval": retrieval, "search_query": search_query})
 
     try:
         answer = generate_answer(question, build_context(relevant), history,
@@ -206,11 +225,7 @@ def ask():
         status = "partial"
     else:
         status = "not_found"
-    sources = [{"number": i, "document": c["document"], "page": c["page"],
-                "unit": c.get("unit", "Page"),
-                "score": c["score"], "excerpt": c["text"]}
-               for i, c in enumerate(relevant, start=1)]
-    return jsonify({"success": True, "answer": answer, "status": status,
+    return jsonify({"success": True, "answer": answer, "status": status, "mode": mode,
                     "grounded": status != "not_found",
                     "sources": [] if status == "not_found" else sources,
                     "checked": sources if status == "not_found" else [],

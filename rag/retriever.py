@@ -57,12 +57,15 @@ def retrieve(question: str, history: list[dict], top_k: int | None = None):
         # Broad question: skip the threshold and add representative chunks
         # from each document so the LLM sees an overview, not random fragments.
         seen, merged = set(), []
-        for chunk in candidates + [dict(c, score=0.0) for c in _representative_chunks(k + 3)]:
+        # Representative chunks first so every document is covered, then top matches.
+        for chunk in [dict(c, score=0.0) for c in _representative_chunks(k + 3)] + candidates:
             key = (chunk["doc_id"], chunk["chunk_index"])
             if key not in seen:
                 seen.add(key)
                 merged.append(chunk)
-        relevant = merged[: k + 3]
+        limit = max(k + 3, 3 * len({c["doc_id"] for c in merged}))
+        scores = {(c["doc_id"], c["chunk_index"]): c["score"] for c in candidates}
+        relevant = [dict(c, score=scores.get((c["doc_id"], c["chunk_index"]), c["score"])) for c in merged[:limit]]
         relevant.sort(key=lambda c: (c["document"], c["chunk_index"]))
         used = {(c["doc_id"], c["chunk_index"]) for c in relevant}
         candidates = relevant + [c for c in candidates if (c["doc_id"], c["chunk_index"]) not in used]
