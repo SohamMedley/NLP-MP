@@ -23,7 +23,7 @@ def _float(name, default):
         return default
 
 
-GROQ_MODEL = os.getenv("GROQ_MODEL") or "llama-3.3-70b-versatile"
+GROQ_MODEL = os.getenv("GROQ_MODEL") or "openai/gpt-oss-20b"
 EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL") or "sentence-transformers/all-MiniLM-L6-v2"
 EMBEDDING_MODEL_PATH = os.getenv("EMBEDDING_MODEL_PATH", "").strip()
 MODEL_CACHE_DIR = os.getenv("MODEL_CACHE_DIR") or str(BASE_DIR / "model_cache")

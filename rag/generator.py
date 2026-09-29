@@ -35,7 +35,7 @@ def _friendly_error(exc) -> str:
         return "Groq rejected the API key. Check GROQ_API_KEY in your environment settings."
     if "decommissioned" in text or "model_not_found" in text or name == "NotFoundError":
         return (f"The Groq model '{config.GROQ_MODEL}' is unavailable. "
-                "Set GROQ_MODEL to a current model (e.g. llama-3.1-8b-instant).")
+                "Set GROQ_MODEL to a current model (e.g. openai/gpt-oss-20b).")
     if name == "RateLimitError":
         return "Groq rate limit reached. Please wait a minute and try again."
     if name in ("APIConnectionError", "APITimeoutError"):
@@ -66,7 +66,33 @@ def _bounded_history(history: list[dict]) -> list[dict]:
     return cleaned[-HISTORY_TURNS * 2:]
 
 
+# Tried in order if the configured model is unavailable on the account.
+FALLBACK_MODELS = ["openai/gpt-oss-20b", "openai/gpt-oss-120b", "llama-3.1-8b-instant"]
+_working_model = None  # remembered after the first successful fallback
+
+
+def _is_model_error(exc) -> bool:
+    text = str(exc).lower()
+    return (type(exc).__name__ in ("NotFoundError", "PermissionDeniedError")
+            or "model_not_found" in text or "decommissioned" in text
+            or "does not exist" in text or "not have access" in text)
+
+
+def _complete(model: str, messages: list[dict]) -> str:
+    params = {"model": model, "messages": messages, "temperature": 0.1, "max_tokens": 2048}
+    if model.startswith("openai/gpt-oss"):
+        # Reasoning models: keep thinking short and out of the returned content.
+        params.update(reasoning_effort="low", include_reasoning=False)
+    response = _get_client().chat.completions.create(**params)
+    return (response.choices[0].message.content or "").strip()
+
+
+def active_model() -> str:
+    return _working_model or config.GROQ_MODEL
+
+
 def generate_answer(question: str, context: str, history: list[dict]) -> str:
+    global _working_model
     messages = [{"role": "system", "content": SYSTEM_PROMPT}]
     messages += _bounded_history(history)
     messages.append({
@@ -74,17 +100,26 @@ def generate_answer(question: str, context: str, history: list[dict]) -> str:
         "content": f"Document context:\n\n{context}\n\n---\nQuestion: {question}\n\n"
                    "Answer using only the document context above.",
     })
-    try:
-        response = _get_client().chat.completions.create(
-            model=config.GROQ_MODEL, messages=messages, temperature=0.1, max_tokens=1024,
-        )
-        answer = (response.choices[0].message.content or "").strip()
-    except GenerationError:
-        raise
-    except Exception as exc:
-        # Log the error type/message only - never the request headers or key.
-        logger.error("Groq API call failed: %s: %s", type(exc).__name__, exc)
-        raise GenerationError(_friendly_error(exc)) from exc
+    candidates = [active_model()] + [m for m in FALLBACK_MODELS if m != active_model()]
+    last_exc = None
+    for model in candidates:
+        try:
+            answer = _complete(model, messages)
+            if model != config.GROQ_MODEL and _working_model != model:
+                logger.warning("GROQ_MODEL '%s' unavailable; using fallback '%s'.",
+                               config.GROQ_MODEL, model)
+            _working_model = model
+            break
+        except GenerationError:
+            raise
+        except Exception as exc:
+            # Log the error type/message only - never the request headers or key.
+            logger.error("Groq API call failed (%s): %s: %s", model, type(exc).__name__, exc)
+            last_exc = exc
+            if not _is_model_error(exc):
+                raise GenerationError(_friendly_error(exc)) from exc
+    else:
+        raise GenerationError(_friendly_error(last_exc)) from last_exc
     if not answer:
         raise GenerationError("Unable to generate an answer right now. Please try again.")
     return answer

@@ -4,25 +4,30 @@
 
   const MAX_MB = Number(document.body.dataset.maxUploadMb) || 50;
   const HISTORY_LIMIT = 6; // messages sent for follow-up context (3 Q/A pairs)
+  const WIDE = window.matchMedia("(min-width: 1281px)");
+  const MOBILE = window.matchMedia("(max-width: 860px)");
 
   const $ = (id) => document.getElementById(id);
   const el = {
-    dropzone: $("dropzone"), fileInput: $("fileInput"), progress: $("progress"),
-    progressStage: $("progressStage"), progressFile: $("progressFile"), progressBar: $("progressBar"),
+    dropzone: $("dropzone"), fileInput: $("fileInput"), progress: $("progress"), progressStage: $("progressStage"),
+    progressFile: $("progressFile"), progressBar: $("progressBar"), progressPct: $("progressPct"), steps: $("steps"),
     uploadMessages: $("uploadMessages"), docList: $("docList"), emptyDocs: $("emptyDocs"),
-    docCount: $("docCount"), statDocs: $("statDocs"), statPages: $("statPages"), statChunks: $("statChunks"),
-    indexStatus: $("indexStatus"), rebuildBtn: $("rebuildBtn"), clearDocsBtn: $("clearDocsBtn"),
-    messages: $("messages"), welcome: $("welcome"), welcomeText: $("welcomeText"), suggestions: $("suggestions"),
-    composer: $("composer"), input: $("questionInput"), sendBtn: $("sendBtn"), clearChatBtn: $("clearChatBtn"),
-    debugToggle: $("debugToggle"), tabBadge: $("tabBadge"), welcomeUpload: $("welcomeUpload"), statusPill: $("statusPill"), statusText: $("statusText"), toast: $("toast"),
+    statDocs: $("statDocs"), statPages: $("statPages"), statChunks: $("statChunks"), indexStatus: $("indexStatus"),
+    rebuildBtn: $("rebuildBtn"), clearDocsBtn: $("clearDocsBtn"), segCount: $("segCount"), scopeLabel: $("scopeLabel"),
+    messages: $("messages"), welcome: $("welcome"), welcomeText: $("welcomeText"), welcomeUpload: $("welcomeUpload"),
+    suggestions: $("suggestions"), composer: $("composer"), input: $("questionInput"), sendBtn: $("sendBtn"),
+    clearChatBtn: $("clearChatBtn"), debugToggle: $("debugToggle"), statusPill: $("statusPill"), statusText: $("statusText"),
+    modelChip: $("modelChip"), evidenceBody: $("evidenceBody"), evidenceSub: $("evidenceSub"),
+    evidenceClose: $("evidenceClose"), scrim: $("scrim"), toast: $("toast"),
   };
 
-  const state = { history: [], indexReady: false, busyUpload: false, busyAsk: false };
+  const state = { history: [], turns: [], selectedTurn: null, indexReady: false, busyUpload: false, busyAsk: false };
 
-  /* ---------------- helpers ---------------- */
+  /* ================= helpers ================= */
   function h(tag, attrs = {}, ...children) {
     const node = document.createElement(tag);
     for (const [k, v] of Object.entries(attrs)) {
+      if (v == null || v === false) continue;
       if (k === "class") node.className = v;
       else if (k.startsWith("on")) node.addEventListener(k.slice(2), v);
       else node.setAttribute(k, v);
@@ -35,34 +40,36 @@
   }
 
   const SVG_NS = "http://www.w3.org/2000/svg";
-  function icon(paths, size = 16) {
+  function icon(paths, size = 16, stroke = 2) {
     const svg = document.createElementNS(SVG_NS, "svg");
-    svg.setAttribute("viewBox", "0 0 24 24"); svg.setAttribute("width", size); svg.setAttribute("height", size);
-    svg.setAttribute("fill", "none"); svg.setAttribute("stroke", "currentColor"); svg.setAttribute("stroke-width", "2.2");
-    svg.setAttribute("stroke-linecap", "round"); svg.setAttribute("stroke-linejoin", "round"); svg.setAttribute("aria-hidden", "true");
+    for (const [k, v] of Object.entries({ viewBox: "0 0 24 24", width: size, height: size, fill: "none", stroke: "currentColor",
+      "stroke-width": stroke, "stroke-linecap": "round", "stroke-linejoin": "round", "aria-hidden": "true" })) svg.setAttribute(k, v);
     for (const d of paths) { const p = document.createElementNS(SVG_NS, "path"); p.setAttribute("d", d); svg.append(p); }
     return svg;
   }
-  // Album-art style gradient per document, derived from its name.
-  const ART = [["#ff5f6d", "#fa2d48"], ["#7f7fd5", "#5856d6"], ["#36d1dc", "#007aff"], ["#f7971e", "#ff9500"],
-    ["#56ab2f", "#34c759"], ["#ee9ca7", "#ff2d92"], ["#8e9eab", "#5b6b7a"], ["#b06ab3", "#af52de"]];
-  function artFor(name) {
+  const ICONS = {
+    spark: ["M12 3l1.9 5.8L20 10l-6.1 1.2L12 17l-1.9-5.8L4 10l6.1-1.2z"],
+    close: ["M18 6 6 18", "m6 6 12 12"],
+    copy: ["M8 8h11v13H8z", "M5 16V3h11"],
+    check: ["M20 6 9 17l-5-5"],
+    doc: ["M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z", "M14 2v6h6"],
+  };
+
+  // Stable tint per document so each file is recognisable everywhere.
+  const TINTS = ["#6d5ef5", "#e5484d", "#12a594", "#f76b15", "#3e63dd", "#d6409f", "#8e4ec6", "#2b9a66"];
+  function tintFor(name) {
     let hash = 0;
     for (const ch of name) hash = (hash * 31 + ch.charCodeAt(0)) >>> 0;
-    const [a, b] = ART[hash % ART.length];
-    return `linear-gradient(135deg, ${a}, ${b})`;
+    return TINTS[hash % TINTS.length];
   }
 
   const escapeHtml = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+  const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
 
   async function api(url, options = {}) {
     let res;
-    try {
-      res = await fetch(url, options);
-    } catch {
-      throw new Error("Network error — is the server running?");
-    }
+    try { res = await fetch(url, options); } catch { throw new Error("Network error. Is the server running?"); }
     let data = {};
     try { data = await res.json(); } catch { /* non-JSON response */ }
     if (!res.ok || data.success === false) {
@@ -79,91 +86,114 @@
     el.toast.classList.toggle("err", isError);
     el.toast.classList.remove("hidden");
     clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => el.toast.classList.add("hidden"), 4000);
+    toastTimer = setTimeout(() => el.toast.classList.add("hidden"), 3800);
   }
 
-  const scrollToBottom = () => { el.messages.scrollTop = el.messages.scrollHeight; };
+  const scrollToBottom = () => el.messages.scrollTo({ top: el.messages.scrollHeight, behavior: "smooth" });
 
-  /* ---------------- safe Markdown ----------------
-     All text is HTML-escaped FIRST, then a small set of Markdown patterns is
-     converted to tags. Raw HTML from the LLM can therefore never execute. */
+  /* ================= safe Markdown =================
+     Text is HTML-escaped FIRST; only a small set of Markdown patterns is then
+     turned into tags, so raw HTML from the LLM can never execute. */
   function inline(text) {
     return text
       .replace(/`([^`]+)`/g, "<code>$1</code>")
       .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
       .replace(/(^|[^*])\*([^*\s][^*]*)\*/g, "$1<em>$2</em>")
-      .replace(/\[Source (\d+)\]/g, '<span class="cite">Source $1</span>');
+      // [Source 1], [Source 1, Source 3], [Sources 1, 2], 【Source 1】
+      .replace(/[\[【]\s*Sources?\s*([\d\s,;&and]+?)\s*[\]】]/gi, (match, list) => {
+        const nums = list.match(/\d+/g);
+        return nums ? nums.map((n) => `<button type="button" class="cite" data-n="${n}">${n}</button>`).join("") : match;
+      });
   }
 
   function renderMarkdown(src) {
     const escaped = escapeHtml(src.replace(/\r\n/g, "\n"));
     const codeBlocks = [];
-    const withoutCode = escaped.replace(/```[\w-]*\n?([\s\S]*?)```/g, (_, code) => {
+    const body = escaped.replace(/```[\w-]*\n?([\s\S]*?)```/g, (_, code) => {
       codeBlocks.push(`<pre><code>${code.replace(/\n$/, "")}</code></pre>`);
       return `\u0000${codeBlocks.length - 1}\u0000`;
     });
-
     const out = [];
-    let list = null; // {type, items}
+    let list = null;
     let para = [];
     const flushPara = () => { if (para.length) { out.push(`<p>${inline(para.join("<br>"))}</p>`); para = []; } };
     const flushList = () => {
       if (list) { out.push(`<${list.type}>${list.items.map((i) => `<li>${inline(i)}</li>`).join("")}</${list.type}>`); list = null; }
     };
-
-    for (const line of withoutCode.split("\n")) {
-      const trimmed = line.trim();
-      const code = trimmed.match(/^\u0000(\d+)\u0000$/);
-      const bullet = trimmed.match(/^[-*•]\s+(.*)$/);
-      const numbered = trimmed.match(/^\d+[.)]\s+(.*)$/);
-      const heading = trimmed.match(/^#{1,4}\s+(.*)$/);
+    for (const line of body.split("\n")) {
+      const t = line.trim();
+      const code = t.match(/^\u0000(\d+)\u0000$/);
+      const bullet = t.match(/^[-*•]\s+(.*)$/);
+      const numbered = t.match(/^\d+[.)]\s+(.*)$/);
+      const heading = t.match(/^#{1,4}\s+(.*)$/);
       if (code) { flushPara(); flushList(); out.push(codeBlocks[Number(code[1])]); }
-      else if (!trimmed) { flushPara(); flushList(); }
+      else if (!t) { flushPara(); flushList(); }
       else if (heading) { flushPara(); flushList(); out.push(`<h4>${inline(heading[1])}</h4>`); }
       else if (bullet || numbered) {
         flushPara();
         const type = bullet ? "ul" : "ol";
         if (!list || list.type !== type) { flushList(); list = { type, items: [] }; }
         list.items.push((bullet || numbered)[1]);
-      } else if (list && /^\s{2,}/.test(line)) {
-        list.items[list.items.length - 1] += " " + trimmed;
-      } else { flushList(); para.push(trimmed); }
+      } else if (list && /^\s{2,}/.test(line)) { list.items[list.items.length - 1] += " " + t; }
+      else { flushList(); para.push(t); }
     }
     flushPara(); flushList();
     return out.join("").replace(/\u0000(\d+)\u0000/g, (_, i) => codeBlocks[Number(i)]);
   }
 
-  /* ---------------- documents ---------------- */
+  /* ================= views (mobile) & evidence drawer ================= */
+  function showView(view) {
+    document.body.dataset.view = view;
+    document.querySelectorAll(".seg").forEach((s) => {
+      const on = s.dataset.view === view;
+      s.classList.toggle("active", on);
+      s.setAttribute("aria-selected", on);
+    });
+    if (view === "chat") setTimeout(scrollToBottom, 50);
+  }
+  document.querySelectorAll(".seg").forEach((s) => s.addEventListener("click", () => showView(s.dataset.view)));
+
+  function openEvidence() {
+    if (WIDE.matches) return; // always visible on wide screens
+    document.body.classList.add("evidence-open");
+    el.scrim.hidden = false;
+  }
+  function closeEvidence() {
+    document.body.classList.remove("evidence-open");
+    el.scrim.hidden = true;
+  }
+  el.evidenceClose.addEventListener("click", closeEvidence);
+  el.scrim.addEventListener("click", closeEvidence);
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeEvidence(); });
+
+  /* ================= documents ================= */
   function renderDocuments(documents, stats) {
-    el.docList.replaceChildren(...documents.map((doc) => h("li", { class: "doc-item" },
-      h("div", { class: "doc-art", "aria-hidden": "true", style: `background:${artFor(doc.filename)}` }, "PDF"),
+    el.docList.replaceChildren(...documents.map((doc) => h("li", { class: "doc", style: `--doc-tint:${tintFor(doc.filename)}` },
+      h("div", { class: "doc-thumb", "aria-hidden": "true" }),
       h("div", { class: "doc-meta" },
         h("div", { class: "doc-name", title: doc.filename }, doc.filename),
-        h("div", { class: "doc-sub" }, `${doc.pages} pages · ${doc.chunks} chunks`)),
-      h("button", {
-        class: "icon-btn", type: "button", title: `Remove ${doc.filename}`,
-        "aria-label": `Remove ${doc.filename}`, onclick: () => removeDocument(doc),
-      }, icon(["M18 6 6 18", "m6 6 12 12"], 16)))));
+        h("div", { class: "doc-sub" }, `${plural(doc.pages, "page")} · ${plural(doc.chunks, "chunk")}`)),
+      h("button", { class: "icon-btn", type: "button", title: `Remove ${doc.filename}`,
+        "aria-label": `Remove ${doc.filename}`, onclick: () => removeDocument(doc) }, icon(ICONS.close, 15)))));
 
     el.emptyDocs.classList.toggle("hidden", documents.length > 0);
-    el.docCount.textContent = stats.documents;
     el.statDocs.textContent = stats.documents;
     el.statPages.textContent = stats.pages;
     el.statChunks.textContent = stats.chunks;
-    el.indexStatus.textContent = stats.index_ready
-      ? "Index ready" : "Index empty";
-    el.tabBadge.textContent = stats.documents;
-    el.tabBadge.classList.toggle("hidden", !stats.documents);
-    el.welcomeUpload.classList.toggle("hidden", stats.index_ready);
+    el.segCount.textContent = stats.documents;
     el.indexStatus.classList.toggle("ready", stats.index_ready);
+    el.indexStatus.lastChild.textContent = stats.index_ready ? "Index ready" : "Empty";
+    el.scopeLabel.textContent = stats.index_ready
+      ? `Searching ${plural(stats.documents, "document")} · ${plural(stats.chunks, "chunk")}` : "No sources yet";
 
     state.indexReady = stats.index_ready;
     el.rebuildBtn.disabled = !stats.index_ready || state.busyUpload;
     el.clearDocsBtn.disabled = !documents.length || state.busyUpload;
     el.suggestions.classList.toggle("hidden", !stats.index_ready);
+    el.welcomeUpload.classList.toggle("hidden", stats.index_ready);
     el.welcomeText.textContent = stats.index_ready
-      ? `${stats.documents} document${stats.documents === 1 ? "" : "s"} · ${stats.chunks} chunks indexed. Ask anything — answers come only from your PDFs, with citations.`
-      : "Add PDFs to your library. DocuRAG finds the most relevant passages and answers only from them, with page citations.";
+      ? `${plural(stats.documents, "document")} indexed and ready. Pick a starter question or ask your own. Every answer links to the exact passages it used.`
+      : "Add PDFs to your sources. DocuRAG retrieves the most relevant passages and answers only from them, with page-level citations you can inspect.";
     updateComposer();
   }
 
@@ -195,18 +225,29 @@
 
   el.rebuildBtn.addEventListener("click", async () => {
     el.rebuildBtn.disabled = true;
-    el.rebuildBtn.textContent = "Rebuilding…";
     try {
       const data = await api("/api/rebuild", { method: "POST" });
-      toast(`Index rebuilt · ${data.chunks} chunks re-embedded`);
+      toast(`Index rebuilt · ${plural(data.chunks, "chunk")} re-embedded`);
     } catch (err) { toast(err.message, true); }
-    el.rebuildBtn.textContent = "Rebuild index";
     loadDocuments();
   });
 
-  /* ---------------- upload ---------------- */
-  function addUploadMessage(kind, text) {
-    el.uploadMessages.append(h("div", { class: `msg-line ${kind}` }, text));
+  /* ================= upload ================= */
+  const STAGES = ["Reading PDF...", "Extracting text...", "Creating chunks...", "Generating embeddings...", "Building semantic index..."];
+
+  function note(kind, text) { el.uploadMessages.append(h("div", { class: `note ${kind}` }, text)); }
+
+  function setStep(active) {
+    el.steps.querySelectorAll("li").forEach((li) => {
+      const i = Number(li.dataset.step);
+      li.classList.toggle("done", i < active);
+      li.classList.toggle("active", i === active);
+    });
+  }
+  function setProgress(pct) {
+    const v = Math.max(0, Math.min(100, Math.round(pct)));
+    el.progressBar.style.width = `${v}%`;
+    el.progressPct.textContent = `${v}%`;
   }
 
   function setUploading(on) {
@@ -222,40 +263,35 @@
       const xhr = new XMLHttpRequest();
       xhr.open("POST", "/api/upload");
       xhr.upload.onprogress = (e) => {
-        if (e.lengthComputable) {
-          const pct = Math.round((e.loaded / e.total) * 100);
-          el.progressStage.textContent = `Uploading… ${pct}%`;
-          el.progressBar.style.width = `${pct * 0.2}%`;
-        }
+        if (!e.lengthComputable) return;
+        const pct = (e.loaded / e.total) * 100;
+        el.progressStage.textContent = `Uploading… ${Math.round(pct)}%`;
+        setProgress(pct * 0.2);
       };
       xhr.onload = () => {
         let data = {};
         try { data = JSON.parse(xhr.responseText); } catch { /* ignore */ }
         if (xhr.status >= 200 && xhr.status < 300 && data.success) resolve(data);
-        else {
-          const err = new Error(data.error || `Upload failed (${xhr.status}).`);
-          err.data = data;
-          reject(err);
-        }
+        else { const err = new Error(data.error || `Upload failed (${xhr.status}).`); err.data = data; reject(err); }
       };
       xhr.onerror = () => reject(new Error("Network error during upload."));
       xhr.send(formData);
     });
   }
 
-  const STAGES = ["Reading PDF...", "Extracting text...", "Creating chunks...", "Generating embeddings...", "Building semantic index..."];
-
   async function pollJob(jobId) {
     for (;;) {
-      await new Promise((r) => setTimeout(r, 600));
+      await new Promise((r) => setTimeout(r, 500));
       const job = await api(`/api/jobs/${jobId}`);
-      const stageIdx = Math.max(0, STAGES.indexOf(job.stage));
+      const stageIdx = STAGES.indexOf(job.stage);
       const perFile = 80 / job.total_files;
-      const done = (job.file_index - 1) * perFile + ((stageIdx + 1) / STAGES.length) * perFile;
-      el.progressStage.textContent = job.done ? "Ready" : job.stage;
-      el.progressFile.textContent = job.current_file
-        ? `${job.current_file} (${job.file_index} of ${job.total_files})` : "";
-      el.progressBar.style.width = `${job.done ? 100 : 20 + Math.max(0, done)}%`;
+      const fileBase = Math.max(0, job.file_index - 1) * perFile;
+      const within = stageIdx >= 0 ? ((stageIdx + 1) / STAGES.length) * perFile : 0;
+      setStep(job.done ? 6 : stageIdx >= 0 ? stageIdx + 1 : 1);
+      setProgress(job.done ? 100 : 20 + fileBase + within);
+      el.progressStage.textContent = job.done ? "Ready" : (job.stage || "Queued").replace("...", "…");
+      if (job.current_file) el.progressFile.textContent = job.total_files > 1
+        ? `${job.current_file} · ${job.file_index}/${job.total_files}` : job.current_file;
       if (job.done) return job;
     }
   }
@@ -267,41 +303,37 @@
     const valid = [];
     let totalBytes = 0;
     for (const file of files) {
-      const isPdf = file.name.toLowerCase().endsWith(".pdf");
-      if (!isPdf) { addUploadMessage("err", `${file.name}: Only PDF files are supported.`); continue; }
-      if (file.size === 0) { addUploadMessage("err", `${file.name}: File is empty.`); continue; }
+      if (!file.name.toLowerCase().endsWith(".pdf")) { note("err", `${file.name}: only PDF files are supported.`); continue; }
+      if (file.size === 0) { note("err", `${file.name}: file is empty.`); continue; }
       totalBytes += file.size;
       valid.push(file);
     }
     if (!valid.length) return;
-    if (totalBytes > MAX_MB * 1024 * 1024) {
-      addUploadMessage("err", `Selected files exceed the ${MAX_MB} MB upload limit. Upload fewer or smaller PDFs.`);
-      return;
-    }
+    if (totalBytes > MAX_MB * 1024 * 1024) { note("err", `Selected files exceed the ${MAX_MB} MB limit. Upload fewer or smaller PDFs.`); return; }
 
     const form = new FormData();
     valid.forEach((f) => form.append("files", f));
     setUploading(true);
-    el.progressBar.style.width = "0%";
+    setStep(0); setProgress(0);
     el.progressFile.textContent = valid.length === 1 ? valid[0].name : `${valid.length} files`;
+    el.progressStage.textContent = "Uploading…";
     try {
       const { job_id: jobId, rejected } = await uploadWithProgress(form);
-      (rejected || []).forEach((r) => addUploadMessage("err", `${r.filename}: ${r.message}`));
+      (rejected || []).forEach((r) => note("err", `${r.filename}: ${r.message}`));
       const job = await pollJob(jobId);
       for (const r of job.results) {
-        if (r.status === "indexed") addUploadMessage("ok", `${r.filename}: ${r.pages} pages · ${r.chunks} chunks indexed`);
-        else if (r.status === "duplicate") addUploadMessage("warn", `${r.filename}: ${r.message}`);
-        else addUploadMessage("err", `${r.filename}: ${r.message}`);
+        if (r.status === "indexed") note("ok", `${r.filename} · ${plural(r.pages, "page")}, ${plural(r.chunks, "chunk")}`);
+        else if (r.status === "duplicate") note("warn", `${r.filename}: already indexed, skipped.`);
+        else note("err", `${r.filename}: ${r.message}`);
       }
       const s = job.stats;
-      if (s && s.index_ready) toast(`${s.documents} document${s.documents === 1 ? "" : "s"} indexed • ${s.chunks} chunks`);
-      if (job.results.some((r) => r.status === "indexed") && window.matchMedia("(max-width: 820px)").matches) {
-        setTimeout(() => showView("chat"), 900);
-      }
+      if (s && s.index_ready) toast(`${plural(s.documents, "document")} indexed · ${plural(s.chunks, "chunk")}`);
+      if (job.results.some((r) => r.status === "indexed") && MOBILE.matches) setTimeout(() => showView("chat"), 900);
     } catch (err) {
-      addUploadMessage("err", err.message);
-      (err.data?.results || []).slice(1).forEach((r) => addUploadMessage("err", `${r.filename}: ${r.message}`));
+      note("err", err.message);
+      (err.data?.results || []).slice(1).forEach((r) => note("err", `${r.filename}: ${r.message}`));
     } finally {
+      await new Promise((r) => setTimeout(r, 400));
       setUploading(false);
       el.fileInput.value = "";
       loadDocuments();
@@ -313,95 +345,186 @@
     if (e.key === "Enter" || e.key === " ") { e.preventDefault(); el.fileInput.click(); }
   });
   el.fileInput.addEventListener("change", () => handleFiles(el.fileInput.files));
-  ["dragenter", "dragover"].forEach((ev) => el.dropzone.addEventListener(ev, (e) => {
-    e.preventDefault(); el.dropzone.classList.add("dragover");
-  }));
-  ["dragleave", "drop"].forEach((ev) => el.dropzone.addEventListener(ev, (e) => {
-    e.preventDefault(); el.dropzone.classList.remove("dragover");
-  }));
+  ["dragenter", "dragover"].forEach((ev) => el.dropzone.addEventListener(ev, (e) => { e.preventDefault(); el.dropzone.classList.add("dragover"); }));
+  ["dragleave", "drop"].forEach((ev) => el.dropzone.addEventListener(ev, (e) => { e.preventDefault(); el.dropzone.classList.remove("dragover"); }));
   el.dropzone.addEventListener("drop", (e) => handleFiles(e.dataTransfer.files));
-  // Prevent the browser from opening a PDF dropped outside the zone.
   window.addEventListener("dragover", (e) => e.preventDefault());
   window.addEventListener("drop", (e) => e.preventDefault());
+  el.welcomeUpload.addEventListener("click", () => { if (MOBILE.matches) showView("library"); el.fileInput.click(); });
 
-  /* ---------------- chat ---------------- */
+  /* ================= evidence ================= */
+  function meter(score) {
+    const pct = Math.max(4, Math.min(100, Math.round(score * 100)));
+    const cls = score >= 0.5 ? "hi" : score < 0.3 ? "lo" : "";
+    return h("div", { class: "ev-score" },
+      h("div", { class: "ev-score-val", title: "Cosine similarity to the question" }, score > 0 ? score.toFixed(2) : "—"),
+      h("div", { class: "ev-meter" }, h("i", { class: cls, style: `width:${score > 0 ? pct : 0}%` })));
+  }
+
+  function evidenceCard({ n, document: docName, page, score, text, tag }) {
+    const card = h("article", { class: `ev-card ${tag === "dropped" ? "unused" : ""}`, "data-n": n ?? "" },
+      h("div", { class: "ev-top" },
+        h("span", { class: "ev-n", style: tag === "dropped" ? null : `background:${tintFor(docName)}` }, n ?? "·"),
+        h("div", { class: "ev-title" },
+          h("div", { class: "ev-doc", title: docName }, docName),
+          h("div", { class: "ev-page" }, `Page ${page}`)),
+        meter(score)),
+      h("div", { class: "ev-text" }, text));
+    const more = h("button", { type: "button", class: "ev-more" }, "Show full passage");
+    more.addEventListener("click", () => {
+      const open = card.classList.toggle("expanded");
+      more.textContent = open ? "Show less" : "Show full passage";
+    });
+    const tags = { used: "Sent to LLM", dropped: "Below threshold", overview: "Overview context" };
+    card.append(h("div", { class: "ev-foot" }, more, tag ? h("span", { class: `tag ${tag}` }, tags[tag]) : null));
+    return card;
+  }
+
+  function renderEvidence(turn, focusN = null) {
+    state.selectedTurn = turn;
+    document.querySelectorAll(".turn-ai").forEach((t) => t.classList.toggle("selected", t === turn.node));
+    const body = el.evidenceBody;
+    body.replaceChildren();
+    const debug = el.debugToggle.checked;
+    el.evidenceSub.textContent = `For: “${turn.question.length > 60 ? turn.question.slice(0, 57) + "…" : turn.question}”`;
+
+    const sources = turn.sources || [];
+    const retrieval = turn.retrieval || [];
+    body.append(h("div", { class: "ev-summary" },
+      h("span", {}, h("b", {}, sources.length), sources.length === 1 ? " source used" : " sources used"),
+      h("span", {}, "·"),
+      h("span", {}, h("b", {}, retrieval.length), " retrieved")));
+
+    if (debug && turn.searchQuery) {
+      body.append(h("div", { class: "ev-section" }, "Search query"), h("div", { class: "ev-query" }, turn.searchQuery));
+    }
+
+    if (sources.length) {
+      body.append(h("div", { class: "ev-section" }, "Cited passages"));
+      sources.forEach((s) => body.append(evidenceCard({ n: s.number, document: s.document, page: s.page, score: s.score,
+        text: s.excerpt, tag: debug ? (s.score > 0 ? "used" : "overview") : null })));
+    } else if (!debug) {
+      body.append(h("div", { class: "evidence-empty" },
+        h("p", {}, "No passages were relevant enough to ground an answer. Turn on Retrieval debug to inspect what was retrieved.")));
+    }
+
+    if (debug) {
+      const dropped = retrieval.filter((r) => !r.used);
+      body.append(h("div", { class: "ev-section" }, `All retrieved chunks (${retrieval.length})`));
+      if (!retrieval.length) body.append(h("div", { class: "evidence-empty" }, h("p", {}, "No chunks retrieved.")));
+      retrieval.forEach((r, i) => body.append(evidenceCard({ n: i + 1, document: r.document, page: r.page, score: r.score,
+        text: r.text, tag: r.used ? "used" : "dropped" })));
+      if (dropped.length) body.append(h("p", { class: "muted", style: "font-size:12px;padding:0 2px" },
+        `${plural(dropped.length, "chunk")} scored below the similarity threshold and were not sent to the LLM.`));
+    }
+
+    focusSource(focusN);
+  }
+
+  function focusSource(n) {
+    document.querySelectorAll(".cite.on, .src-chip.on").forEach((c) => c.classList.remove("on"));
+    el.evidenceBody.querySelectorAll(".ev-card.on").forEach((c) => c.classList.remove("on"));
+    if (n == null || !state.selectedTurn) return;
+    state.selectedTurn.node.querySelectorAll(`.cite[data-n="${n}"], .src-chip[data-n="${n}"]`).forEach((c) => c.classList.add("on"));
+    const card = el.evidenceBody.querySelector(`.ev-card[data-n="${n}"]`);
+    if (card) {
+      card.classList.add("on");
+      card.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    }
+  }
+
+  function showEvidence(turn, n = null) {
+    renderEvidence(turn, n);
+    openEvidence();
+  }
+
+  el.debugToggle.addEventListener("change", () => { if (state.selectedTurn) renderEvidence(state.selectedTurn); });
+
+  /* ================= chat ================= */
   function updateComposer() {
-    const enabled = state.indexReady && !state.busyAsk;
     el.input.disabled = !state.indexReady;
-    el.input.placeholder = state.indexReady
-      ? "Ask about your documents…" : "Add a PDF to start asking…";
-    el.sendBtn.disabled = !enabled || !el.input.value.trim();
-    el.clearChatBtn.disabled = state.history.length === 0 && !el.messages.querySelector(".msg");
+    el.input.placeholder = state.indexReady ? "Ask anything about your documents…" : "Add a PDF to start asking…";
+    el.sendBtn.disabled = !state.indexReady || state.busyAsk || !el.input.value.trim();
+    el.clearChatBtn.disabled = state.turns.length === 0 && !el.messages.querySelector(".turn-user");
   }
 
-  function scoreBadge(score) {
-    const cls = score >= 0.5 ? "high" : score < 0.3 ? "low" : "";
-    return h("span", { class: `score ${cls}`, title: "Cosine similarity between question and chunk" }, score.toFixed(2));
-  }
-
-  function renderSources(sources) {
-    return h("div", { class: "sources" },
-      h("div", { class: "sources-title" }, "Sources"),
-      sources.map((s) => h("details", { class: "source" },
-        h("summary", {},
-          h("span", { class: "src-num" }, s.number),
-          h("span", { class: "src-info" },
-            h("span", { class: "src-name", title: s.document }, s.document),
-            h("span", { class: "src-page" }, `Page ${s.page}`)),
-          scoreBadge(s.score)),
-        h("div", { class: "excerpt" }, s.excerpt))));
-  }
-
-  function renderDebug(retrieval, searchQuery) {
-    const box = h("div", { class: "debug debug-panel" },
-      h("div", { class: "sources-title" }, "Retrieved context (debug)"),
-      h("div", { class: "debug-query" }, "Search query: ", h("code", {}, searchQuery || "")),
-      retrieval.length ? retrieval.map((r, i) => h("details", { class: `source ${r.used ? "" : "unused"}` },
-        h("summary", {},
-          h("span", { class: "src-num" }, i + 1),
-          h("span", { class: "src-info" },
-            h("span", { class: "src-name" }, r.document),
-            h("span", { class: "src-page" }, `Page ${r.page}`)),
-          h("span", { class: `tag ${r.used ? "used" : "dropped"}` }, r.used ? "sent to LLM" : "below threshold"),
-          scoreBadge(r.score)),
-        h("div", { class: "excerpt" }, r.text))) : h("div", { class: "debug-query" }, "No chunks retrieved."));
-    box.classList.toggle("hidden", !el.debugToggle.checked);
-    return box;
-  }
-
-  function addUserMessage(text) {
+  function addUserTurn(text) {
     el.welcome.classList.add("hidden");
-    el.messages.append(h("div", { class: "msg user" }, h("div", { class: "bubble-user" }, text)));
+    el.messages.append(h("div", { class: "turn-user" }, h("div", { class: "q-bubble" }, text)));
     scrollToBottom();
   }
 
-  function addPending() {
-    const node = h("div", { class: "msg ai" },
-      h("div", { class: "avatar", "aria-hidden": "true" }, icon(["M12 3l1.9 5.8L20 10l-6.1 1.2L12 17l-1.9-5.8L4 10l6.1-1.2z"], 16)),
-      h("div", { class: "ai-body" }, h("div", { class: "answer-card" },
-        h("span", { class: "typing" }, h("span", { class: "dots" }, h("span"), h("span"), h("span")),
-          "Retrieving relevant passages and generating answer…"))));
+  function addPendingTurn() {
+    const node = h("div", { class: "turn-ai" },
+      h("div", { class: "ai-mark", "aria-hidden": "true" }, icon(ICONS.spark, 15, 2.2)),
+      h("div", { class: "ai-main" },
+        h("div", { class: "thinking" },
+          h("div", { class: "think-line" }, h("span", { class: "spin" }), "Searching your documents and composing a grounded answer…"),
+          h("div", { class: "skeleton", style: "width:92%" }),
+          h("div", { class: "skeleton", style: "width:78%" }),
+          h("div", { class: "skeleton", style: "width:64%" }))));
     el.messages.append(node);
     scrollToBottom();
     return node;
   }
 
-  function fillAnswer(node, data) {
-    const body = node.querySelector(".ai-body");
-    const card = h("div", { class: `answer-card ${data.grounded ? "" : "not-found"}` });
-    if (!data.grounded) card.append(h("div", { class: "answer-tag" }, "⚠ Not found in documents"));
-    const md = h("div", { class: "markdown" });
-    md.innerHTML = renderMarkdown(data.answer); // safe: escaped before formatting
-    card.append(md);
-    body.replaceChildren(card);
-    if (data.sources?.length) body.append(renderSources(data.sources));
-    if (data.retrieval) body.append(renderDebug(data.retrieval, data.search_query));
+  function copyButton(text) {
+    const btn = h("button", { type: "button", class: "tool" }, icon(ICONS.copy, 14), "Copy");
+    btn.addEventListener("click", async () => {
+      try {
+        await navigator.clipboard.writeText(text);
+        btn.replaceChildren(icon(ICONS.check, 14), "Copied");
+        setTimeout(() => btn.replaceChildren(icon(ICONS.copy, 14), "Copy"), 1500);
+      } catch { toast("Could not copy to clipboard", true); }
+    });
+    return btn;
   }
 
-  function fillError(node, err) {
-    const body = node.querySelector(".ai-body");
-    body.replaceChildren(h("div", { class: "answer-card error" }, err.message));
-    if (err.data?.retrieval) body.append(renderDebug(err.data.retrieval, ""));
+  function fillAnswer(node, question, data) {
+    const turn = { node, question, sources: data.sources || [], retrieval: data.retrieval || [], searchQuery: data.search_query };
+    state.turns.push(turn);
+    const main = node.querySelector(".ai-main");
+    const grounded = data.grounded;
+
+    const head = h("div", { class: "ai-head" },
+      h("strong", {}, "DocuRAG"),
+      grounded
+        ? h("span", { class: "badge grounded" }, icon(ICONS.check, 12, 2.6), `Grounded in ${plural(turn.sources.length, "source")}`)
+        : h("span", { class: "badge notfound" }, "Not found in documents"));
+
+    const answer = h("div", { class: `answer md ${grounded ? "" : "notfound"}` });
+    answer.innerHTML = renderMarkdown(data.answer); // safe: escaped before formatting
+    answer.addEventListener("click", (e) => {
+      const cite = e.target.closest(".cite");
+      if (cite) showEvidence(turn, Number(cite.dataset.n));
+    });
+
+    const parts = [head, answer];
+    if (turn.sources.length) {
+      parts.push(h("div", { class: "src-row" }, turn.sources.map((s) =>
+        h("button", { type: "button", class: "src-chip", "data-n": s.number, title: `${s.document}, page ${s.page}`,
+          onclick: () => showEvidence(turn, s.number) },
+          h("span", { class: "src-n", style: `background:${tintFor(s.document)};color:#fff` }, s.number),
+          h("span", { class: "src-doc" }, s.document),
+          h("span", { class: "src-pg" }, `p.${s.page}`)))));
+    }
+    parts.push(h("div", { class: "ai-tools" },
+      copyButton(data.answer),
+      h("button", { type: "button", class: "tool", onclick: () => showEvidence(turn) }, icon(ICONS.doc, 14), "View evidence")));
+    main.replaceChildren(...parts);
+
+    renderEvidence(turn); // keep the evidence panel in sync with the latest answer
+  }
+
+  function fillError(node, question, err) {
+    const main = node.querySelector(".ai-main");
+    const turn = { node, question, sources: [], retrieval: err.data?.retrieval || [], searchQuery: "" };
+    main.replaceChildren(
+      h("div", { class: "ai-head" }, h("strong", {}, "DocuRAG"), h("span", { class: "badge error" }, "Error")),
+      h("div", { class: "answer error" }, err.message),
+      turn.retrieval.length ? h("div", { class: "ai-tools" },
+        h("button", { type: "button", class: "tool", onclick: () => { el.debugToggle.checked = true; showEvidence(turn); } },
+          icon(ICONS.doc, 14), "Inspect retrieval")) : null);
   }
 
   async function ask(question) {
@@ -409,8 +532,8 @@
     state.busyAsk = true;
     el.input.value = "";
     autoresize();
-    addUserMessage(question);
-    const pending = addPending();
+    addUserTurn(question);
+    const pending = addPendingTurn();
     updateComposer();
     try {
       const data = await api("/api/ask", {
@@ -418,15 +541,15 @@
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ question, history: state.history.slice(-HISTORY_LIMIT) }),
       });
-      fillAnswer(pending, data);
+      fillAnswer(pending, question, data);
       state.history.push({ role: "user", content: question }, { role: "assistant", content: data.answer });
     } catch (err) {
-      fillError(pending, err);
+      fillError(pending, question, err);
     } finally {
       state.busyAsk = false;
       updateComposer();
       scrollToBottom();
-      el.input.focus();
+      if (!MOBILE.matches) el.input.focus();
     }
   }
 
@@ -441,47 +564,39 @@
     if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); ask(el.input.value.trim()); }
   });
   el.suggestions.addEventListener("click", (e) => {
-    if (e.target.matches(".chip")) ask(e.target.textContent.trim());
+    const btn = e.target.closest(".suggest");
+    if (btn) ask(btn.textContent.replace(/^\W+/, "").trim());
   });
   el.clearChatBtn.addEventListener("click", () => {
     state.history = [];
-    el.messages.querySelectorAll(".msg").forEach((m) => m.remove());
+    state.turns = [];
+    state.selectedTurn = null;
+    el.messages.querySelectorAll(".turn-user, .turn-ai").forEach((m) => m.remove());
     el.welcome.classList.remove("hidden");
+    el.evidenceSub.textContent = "Passages behind the selected answer.";
+    el.evidenceBody.replaceChildren(h("div", { class: "evidence-empty" },
+      h("p", {}, "Ask a question to see the exact passages, pages and similarity scores used to ground the answer.")));
+    closeEvidence();
     updateComposer();
   });
-  el.debugToggle.addEventListener("change", () => {
-    document.querySelectorAll(".debug-panel").forEach((p) => p.classList.toggle("hidden", !el.debugToggle.checked));
-  });
 
-  /* ---------------- mobile tabs ---------------- */
-  function showView(view) {
-    document.body.dataset.view = view;
-    document.querySelectorAll(".tab").forEach((t) => t.classList.toggle("active", t.dataset.tab === view));
-    window.scrollTo(0, 0);
-    if (view === "chat") scrollToBottom();
-  }
-  document.querySelectorAll(".tab").forEach((t) => t.addEventListener("click", () => showView(t.dataset.tab)));
-  el.welcomeUpload.addEventListener("click", () => {
-    if (window.matchMedia("(max-width: 820px)").matches) showView("library");
-    el.fileInput.click();
-  });
-
-  /* ---------------- health ---------------- */
+  /* ================= health ================= */
   async function checkHealth() {
     try {
-      const res = await fetch("/api/health");
-      const data = await res.json();
+      const data = await (await fetch("/api/health")).json();
+      el.modelChip.textContent = data.model;
+      el.modelChip.hidden = false;
       if (data.groq_configured) {
-        el.statusPill.className = "status-pill ok";
+        el.statusPill.className = "status ok";
         el.statusText.textContent = "Online";
-        el.statusPill.title = `LLM: ${data.model}`;
+        el.statusPill.title = `LLM: ${data.model} · Embeddings: ${data.embedding_model}`;
       } else {
-        el.statusPill.className = "status-pill warn";
-        el.statusText.textContent = "GROQ_API_KEY missing";
+        el.statusPill.className = "status warn";
+        el.statusText.textContent = "API key missing";
         el.statusPill.title = "Retrieval works, but answers need GROQ_API_KEY on the server.";
       }
     } catch {
-      el.statusPill.className = "status-pill err";
+      el.statusPill.className = "status err";
       el.statusText.textContent = "Offline";
     }
   }

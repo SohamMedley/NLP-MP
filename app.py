@@ -12,7 +12,7 @@ from werkzeug.utils import secure_filename
 
 from rag import config
 from rag.embeddings import embed_texts, get_model
-from rag.generator import NOT_FOUND_MESSAGE, GenerationError, generate_answer
+from rag.generator import NOT_FOUND_MESSAGE, GenerationError, active_model, generate_answer
 from rag.pipeline import ingest_pdf
 from rag.retriever import build_context, retrieve
 from rag.vector_store import store
@@ -83,7 +83,7 @@ def index():
 def health():
     return jsonify({"status": "ok", "service": "DocuRAG",
                     "groq_configured": bool(config.groq_api_key()),
-                    "model": config.GROQ_MODEL, "embedding_model": config.EMBEDDING_MODEL,
+                    "model": active_model(), "embedding_model": config.EMBEDDING_MODEL,
                     **store.stats()})
 
 

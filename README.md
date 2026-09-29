@@ -44,7 +44,7 @@ This project shows the full **Retrieval-Augmented Generation (RAG)** pipeline as
 | PDF extraction | PyMuPDF (`pymupdf`) | Fast, free, extracts page by page |
 | Embeddings | `sentence-transformers/all-MiniLM-L6-v2` run by **FastEmbed** (ONNX Runtime) | Free, local, 384-dim, small |
 | Vector index | FAISS (`IndexIDMap2(IndexFlatIP)`) | Exact cosine search; supports deleting by id |
-| LLM | Groq API (default `llama-3.3-70b-versatile`, configurable) | Fast; free tier available |
+| LLM | Groq API (default `openai/gpt-oss-20b`, configurable) | Fast; free tier available |
 
 **Why FastEmbed instead of the `sentence-transformers` package?** It runs the **same all-MiniLM-L6-v2 model** through ONNX Runtime instead of PyTorch. PyTorch adds roughly 1–2 GB to the install and several hundred MB of RAM. That can exceed the 512 MB memory of Render's free instance. FastEmbed keeps the same model quality at a fraction of the footprint. Vectors are L2-normalized, so FAISS inner product equals cosine similarity.
 
@@ -184,7 +184,7 @@ Set at least `GROQ_API_KEY=gsk_...`. The key is read only on the server and is n
 | Variable | Default | Meaning |
 |---|---|---|
 | `GROQ_API_KEY` | — | Required for answer generation |
-| `GROQ_MODEL` | `llama-3.3-70b-versatile` | Any Groq chat model; change it without touching code (e.g. `llama-3.1-8b-instant`) |
+| `GROQ_MODEL` | `openai/gpt-oss-20b` | Any Groq chat model; change it without touching code (e.g. `openai/gpt-oss-120b`); if it is unavailable the app automatically falls back to `openai/gpt-oss-20b`, `openai/gpt-oss-120b`, then `llama-3.1-8b-instant` |
 | `CHUNK_SIZE` | `1000` | Chunk length in characters |
 | `CHUNK_OVERLAP` | `150` | Overlap in characters (whole sentences) |
 | `TOP_K` | `5` | Chunks retrieved per question |
