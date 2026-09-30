@@ -91,7 +91,13 @@ Question ──► (follow-up resolution) ──► Query embedding ──► To
 | NLP techniques | Retrieval + prompt engineering + LLM generation | Sentence segmentation, tokenization, stop-word removal, stemming, **TF-IDF + cosine**, sentence embeddings, **MMR**, **TextRank** summarization |
 | Hallucination risk | Low (grounded prompt) | **None**: it can only return text that exists in the documents |
 
-Local NLP pipeline (`rag/extractive.py`): the retrieved chunks are split into sentences, and each sentence is scored as `0.7 × embedding cosine + 0.3 × TF-IDF cosine` against the question. The best sentence becomes the answer, and **MMR** adds non-redundant supporting sentences. For "summarize / main concepts / conclusion" requests it runs **TextRank** (PageRank over the sentence-similarity graph) and picks the most central sentences from **each** document.
+Local NLP pipeline (`rag/extractive.py`):
+- **Preprocessing:** Markdown/README noise (headings, tables, code, `**`, links) is normalized; headings are kept as *section* labels, and table rows, code and fragments are filtered out of answers.
+- **Question classification:** summary, concepts, conclusion, findings, list, definition, reason, number, person or general.
+- **Sentence ranking:** `0.6 × embedding cosine + 0.2 × TF-IDF cosine + 0.2 × term coverage`, plus boosts for answer type (numbers, names, "because", "is a") and matching section headings. The best sentence becomes the answer, and **MMR** adds non-redundant related details.
+- **Section-aware answers:** "What are the limitations / features / future enhancements?" returns that section's points in order.
+- **Summaries:** **TextRank** (PageRank over the sentence-similarity graph) with lead bias and cue words; the overview is the document's first descriptive sentence. **Key terms** come from TF-IDF keyphrase extraction (unigrams + bigrams).
+- **Hybrid retrieval:** keyword matching backs up dense search for acronyms and rare names (e.g. "FAISS").
 
 If `GROQ_API_KEY` is missing, the UI automatically switches to Local NLP.
 
@@ -252,7 +258,7 @@ To change the LLM model, chunking or threshold, edit the environment variables i
 - Per-user sessions / isolated indexes
 - Streaming answers (Server-Sent Events)
 - Map-reduce summarization of whole documents
-- Support for DOCX, TXT and HTML
+- Support for DOCX and HTML
 - Evaluation set with retrieval metrics (Recall@K, MRR) and answer faithfulness scores
 - Optional persistent storage for self-hosted deployments
 

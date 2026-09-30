@@ -65,13 +65,65 @@ def _decode_text(raw: bytes) -> str:
     raise ValueError("The text file could not be decoded.")
 
 
+def _end_sentence(text: str) -> str:
+    text = text.strip()
+    return text if not text or text[-1] in ".!?:;" else text + "."
+
+
+def normalize_markdown(text: str) -> str:
+    """Turn Markdown-style plain text (READMEs, notes) into clean prose paragraphs.
+
+    Headings, list items and table rows become their own sentences, so they don't
+    merge into neighbouring sentences during segmentation; formatting symbols
+    (#, **, `, >, |---|) are removed while the words are kept.
+    """
+    out, table_header, in_code = [], None, False
+    for line in text.replace("\r\n", "\n").split("\n"):
+        stripped = line.strip()
+        if stripped.startswith("```"):
+            in_code = not in_code
+            out.append("")
+            continue
+        if in_code:
+            out.append(line)          # keep code/diagrams as their own block
+            continue
+        if not stripped or re.fullmatch(r"[-*_=]{3,}", stripped):
+            out.append("")
+            table_header = None
+            continue
+        # Tables: "| a | b |" rows -> "header: value; header: value."
+        if stripped.startswith("|") and stripped.endswith("|"):
+            cells = [c.strip() for c in stripped.strip("|").split("|")]
+            if all(re.fullmatch(r":?-{2,}:?", c) for c in cells if c):
+                continue              # separator row
+            if table_header is None:
+                table_header = cells
+                continue
+            pairs = [f"{h}: {c}" if h else c for h, c in zip(table_header, cells) if c]
+            out += ["", _end_sentence("; ".join(pairs)), ""]
+            continue
+        table_header = None
+        stripped = re.sub(r"^>\s*", "", stripped)                        # blockquote
+        stripped = re.sub(r"!?\[([^\]]*)\]\([^)]*\)", r"\1", stripped)     # links/images
+        stripped = re.sub(r"(\*\*|__|`)", "", stripped)                  # bold / code marks
+        heading = re.match(r"^#{1,6}\s+(.*)", stripped)
+        item = re.match(r"^(?:[-*+•]|\d+[.)])\s+(.*)", stripped)
+        if heading:
+            out += ["", re.sub(r"^\d+(\.\d+)*\.?\s+", "", heading.group(1)).rstrip(".:") + ":", ""]
+        elif item:
+            out += ["", _end_sentence(item.group(1)), ""]
+        else:
+            out.append(stripped)
+    return "\n".join(out)
+
+
 def extract_text_sections(txt_path: str) -> tuple[list[dict], int]:
     """Read a .txt file and split it into ~3000-character sections on paragraph
     boundaries. Sections play the role of pages for citations ("Section 2")."""
     with open(txt_path, "rb") as fh:
         raw = fh.read()
     # Form feeds (\f) are real page breaks in some exported text files.
-    text = _decode_text(raw)
+    text = normalize_markdown(_decode_text(raw))
     sections, current = [], ""
     for block in re.split(r"\f|\n\s*\n", text):
         block = block.strip()

@@ -53,6 +53,17 @@ def retrieve(question: str, history: list[dict], top_k: int | None = None):
     candidates = store.search(embed_query(search_query), k)
     relevant = [c for c in candidates if c["score"] >= config.MIN_SIMILARITY]
 
+    # Hybrid retrieval: add keyword matches the dense search missed (acronyms, names).
+    from .extractive import keyword_search  # local import avoids a circular import
+    have = {(c["doc_id"], c["chunk_index"]) for c in relevant}
+    extra = [dict(c, score=0.0) for c in keyword_search(question, store.all_chunks())
+             if (c["doc_id"], c["chunk_index"]) not in have]
+    if extra:
+        dense = {(c["doc_id"], c["chunk_index"]): c["score"] for c in candidates}
+        extra = [dict(c, score=dense.get((c["doc_id"], c["chunk_index"]), 0.0)) for c in extra]
+        relevant = relevant + extra[: max(1, k - len(relevant))]
+        candidates = candidates + [c for c in extra if (c["doc_id"], c["chunk_index"]) not in dense]
+
     if is_broad_question(question):
         # Broad question: skip the threshold and add representative chunks
         # from each document so the LLM sees an overview, not random fragments.

@@ -199,15 +199,20 @@ def ask():
                for i, c in enumerate(relevant, start=1)]
 
     if mode == "local":
-        answer, found = extractive_answer(question, relevant, broad=is_broad_question(question))
+        answer, found, cited_chunks = extractive_answer(question, relevant,
+                                                        broad=is_broad_question(question))
         if not found:
             return jsonify({"success": True, "answer": LOW_RELEVANCE_MESSAGE, "status": "not_found",
                             "grounded": False, "sources": [], "checked": sources, "mode": mode,
                             "retrieval": retrieval, "search_query": search_query})
-        cited = {int(n) for n in re.findall(r"\[Source (\d+)\]", answer)}
+        scores = {(c["doc_id"], c["chunk_index"]): c["score"] for c in candidates}
+        local_sources = [{"number": i, "document": c["document"], "page": c["page"],
+                          "unit": c.get("unit", "Page"),
+                          "score": scores.get((c["doc_id"], c["chunk_index"]), 0.0), "excerpt": c["text"]}
+                         for i, c in enumerate(cited_chunks, start=1)]
         return jsonify({"success": True, "answer": answer, "status": "grounded", "grounded": True,
-                        "sources": [s for s in sources if s["number"] in cited], "checked": [],
-                        "mode": mode, "retrieval": retrieval, "search_query": search_query})
+                        "sources": local_sources, "checked": [], "mode": mode,
+                        "retrieval": retrieval, "search_query": search_query})
 
     try:
         answer = generate_answer(question, build_context(relevant), history,

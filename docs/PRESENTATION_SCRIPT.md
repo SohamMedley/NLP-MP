@@ -140,7 +140,7 @@ In Local NLP mode, everything runs in our Python backend, in `rag/extractive.py`
 1. **Sentence segmentation** of the retrieved chunks.
 2. **Tokenization, stop-word removal and stemming.** For example, 'embeddings' becomes 'embed'. We wrote a Porter-style suffix stripper.
 3. **TF-IDF vectors and cosine similarity** between the question and each sentence, which is a **lexical** match.
-4. **Sentence-embedding cosine similarity**, which is a **semantic** match. We combine them as 0.7 × semantic + 0.3 × lexical, a **hybrid ranking**.
+4. **Sentence-embedding cosine similarity**, which is a **semantic** match. We combine them as 0.6 × semantic + 0.2 × lexical + 0.2 × term coverage, a **hybrid ranking**, with extra boosts when a sentence matches the question type or sits under a matching section heading.
 5. **MMR (Maximal Marginal Relevance)** picks supporting sentences that are relevant but don't repeat each other.
 6. For 'Summarize' questions we use **TextRank**: we build a graph where sentences are nodes and similarities are edges, run **PageRank**, and choose the most central sentences from each document. That's **extractive summarization**.
 
