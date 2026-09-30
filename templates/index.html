@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="theme-color" content="#f7f6f3">
+  <title>DocuRAG — Ask your documents</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body data-max-upload-mb="{{ max_upload_mb }}" data-view="chat">
+
+  <!-- ================= Top bar ================= -->
+  <header class="topbar">
+    <div class="brand">
+      <span class="mark" aria-hidden="true">
+        <svg viewBox="0 0 32 32" width="30" height="30"><rect width="32" height="32" rx="9" fill="#1c1b22"/><path d="M10 9h7.5a6.5 6.5 0 0 1 0 13H10z" fill="none" stroke="#fff" stroke-width="2.4"/><circle cx="22.5" cy="22.5" r="3" fill="#8b7cf6"/></svg>
+      </span>
+      <span class="brand-name">DocuRAG</span>
+      <span class="brand-divider" aria-hidden="true"></span>
+      <span class="brand-sub">Retrieval-Augmented Document Q&amp;A</span>
+    </div>
+
+    <div class="segmented" role="tablist" aria-label="View">
+      <button type="button" role="tab" class="seg" data-view="library" aria-selected="false">Sources <span class="seg-count" id="segCount">0</span></button>
+      <button type="button" role="tab" class="seg active" data-view="chat" aria-selected="true">Chat</button>
+    </div>
+
+    <div class="topbar-right">
+      <span class="status" id="statusPill"><span class="status-dot"></span><span id="statusText">Connecting</span></span>
+      <span class="model-chip" id="modelChip" hidden></span>
+    </div>
+  </header>
+
+  <div class="shell">
+    <!-- ================= Sources panel ================= -->
+    <aside class="panel sources-panel" aria-label="Sources">
+      <div class="panel-head">
+        <h2 class="panel-title">Sources</h2>
+        <p class="panel-sub">PDF &amp; TXT files are embedded locally and searched by meaning.</p>
+      </div>
+
+      <div class="dropzone" id="dropzone" tabindex="0" role="button" aria-label="Add PDF or TXT files. Drop here or press Enter to browse">
+        <div class="dz-illus" aria-hidden="true">
+          <span class="sheet s1"></span><span class="sheet s2"></span>
+          <span class="sheet s3"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 6v12M6 12h12"/></svg></span>
+        </div>
+        <p class="dz-title">Drop PDF or TXT files</p>
+        <p class="dz-hint">or <span class="link">browse files</span> · max {{ max_upload_mb }} MB</p>
+        <input type="file" id="fileInput" accept="application/pdf,.pdf,text/plain,.txt" multiple hidden>
+      </div>
+
+      <!-- Live ingestion stepper (driven by real server stages) -->
+      <div class="ingest hidden" id="progress" aria-live="polite">
+        <div class="ingest-head">
+          <span class="ingest-file" id="progressFile">Uploading…</span>
+          <span class="ingest-pct" id="progressPct">0%</span>
+        </div>
+        <div class="bar"><div class="bar-fill" id="progressBar"></div></div>
+        <ol class="steps" id="steps">
+          <li data-step="0">Upload</li>
+          <li data-step="1">Read file</li>
+          <li data-step="2">Extract text</li>
+          <li data-step="3">Chunk</li>
+          <li data-step="4">Embed</li>
+          <li data-step="5">Index</li>
+        </ol>
+        <p class="ingest-stage" id="progressStage">Uploading…</p>
+      </div>
+      <div id="uploadMessages" class="notes" aria-live="polite"></div>
+
+      <div class="metrics">
+        <div class="metric"><span class="metric-val" id="statDocs">0</span><span class="metric-lbl">Docs</span></div>
+        <div class="metric"><span class="metric-val" id="statPages">0</span><span class="metric-lbl">Pages</span></div>
+        <div class="metric"><span class="metric-val" id="statChunks">0</span><span class="metric-lbl">Chunks</span></div>
+      </div>
+
+      <div class="list-head">
+        <span>Library</span>
+        <span class="index-state" id="indexStatus"><span class="dot"></span>Empty</span>
+      </div>
+      <ul class="doc-list" id="docList"></ul>
+      <div class="empty-docs" id="emptyDocs">
+        <p>Your library is empty.</p>
+        <p class="muted">Add lecture notes, papers or manuals to begin.</p>
+      </div>
+
+      <div class="panel-actions">
+        <button class="btn btn-quiet" id="rebuildBtn" disabled>
+          <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/></svg>
+          Rebuild index
+        </button>
+        <button class="btn btn-quiet danger" id="clearDocsBtn" disabled>
+          <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/></svg>
+          Clear all
+        </button>
+      </div>
+
+      <details class="how">
+        <summary>How DocuRAG answers</summary>
+        <ol class="how-flow">
+          <li><b>Extract</b> text page by page (PyMuPDF) or by section (TXT)</li>
+          <li><b>Clean</b> and normalise the text</li>
+          <li><b>Chunk</b> into overlapping, sentence-aware passages</li>
+          <li><b>Embed</b> locally with all-MiniLM-L6-v2</li>
+          <li><b>Retrieve</b> top-K passages via FAISS cosine search</li>
+          <li><b>Generate</b> a grounded, cited answer with Groq</li>
+        </ol>
+      </details>
+    </aside>
+
+    <!-- ================= Conversation ================= -->
+    <main class="conversation" aria-label="Conversation">
+      <div class="convo-bar">
+        <div class="convo-title">
+          <h1>Conversation</h1>
+          <span class="scope" id="scopeLabel">No sources yet</span>
+        </div>
+        <div class="convo-actions">
+          <label class="switch" title="Show every retrieved chunk, its similarity score and whether it was sent to the LLM">
+            <input type="checkbox" id="debugToggle">
+            <span class="switch-track"><span class="switch-thumb"></span></span>
+            <span>Retrieval debug</span>
+          </label>
+          <button type="button" class="btn btn-quiet btn-sm" id="clearChatBtn" disabled>New chat</button>
+        </div>
+      </div>
+
+      <div class="messages" id="messages" aria-live="polite">
+        <section class="welcome" id="welcome">
+          <p class="eyebrow">Document-grounded answers</p>
+          <h2 class="welcome-title">Ask your documents,<br><em>get cited answers.</em></h2>
+          <p class="welcome-text" id="welcomeText">Add PDF or TXT files to your sources. DocuRAG retrieves the most relevant passages and answers only from them, with page-level citations you can inspect.</p>
+
+          <button type="button" class="btn btn-ink welcome-cta" id="welcomeUpload">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+            Add your first document
+          </button>
+
+          <div class="suggestions hidden" id="suggestions">
+            <button class="suggest" type="button"><span class="suggest-ico">✦</span><span>Summarize this document.</span></button>
+            <button class="suggest" type="button"><span class="suggest-ico">◎</span><span>What are the main concepts?</span></button>
+            <button class="suggest" type="button"><span class="suggest-ico">◇</span><span>Explain the key findings.</span></button>
+            <button class="suggest" type="button"><span class="suggest-ico">→</span><span>What is the conclusion?</span></button>
+          </div>
+
+          <ol class="flow" aria-label="RAG pipeline">
+            <li><span>01</span>Extract</li>
+            <li><span>02</span>Chunk</li>
+            <li><span>03</span>Embed</li>
+            <li><span>04</span>Retrieve</li>
+            <li><span>05</span>Generate</li>
+          </ol>
+        </section>
+      </div>
+
+      <form class="composer" id="composer" autocomplete="off">
+        <div class="composer-card">
+          <textarea id="questionInput" rows="1" maxlength="2000" placeholder="Add a PDF or TXT file to start asking…" aria-label="Your question" disabled></textarea>
+          <div class="composer-row">
+            <div class="mode" role="radiogroup" aria-label="Answer engine">
+              <button type="button" class="mode-opt active" data-mode="llm" role="radio" aria-checked="true" title="Generative RAG: retrieved passages are sent to an LLM on Groq, which writes a cited answer">
+                <span class="mode-dot"></span>Groq LLM
+              </button>
+              <button type="button" class="mode-opt" data-mode="local" role="radio" aria-checked="false" title="Extractive NLP in Python, no API: TF-IDF, stemming, embeddings, MMR and TextRank pick the best sentences">
+                <span class="mode-dot"></span>Local NLP
+              </button>
+            </div>
+            <span class="composer-hint" id="modeHint">Generative answer via Groq · <kbd>Enter</kbd> to send</span>
+            <button type="submit" class="send" id="sendBtn" disabled aria-label="Send question">
+              <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5"/><path d="m5 12 7-7 7 7"/></svg>
+            </button>
+          </div>
+        </div>
+      </form>
+    </main>
+
+    <!-- ================= Evidence panel ================= -->
+    <aside class="panel evidence-panel" id="evidence" aria-label="Evidence">
+      <div class="sheet-grip" aria-hidden="true"></div>
+      <div class="panel-head row">
+        <div>
+          <h2 class="panel-title">Evidence</h2>
+          <p class="panel-sub" id="evidenceSub">Passages behind the selected answer.</p>
+        </div>
+        <button type="button" class="icon-btn evidence-close" id="evidenceClose" aria-label="Close evidence">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg>
+        </button>
+      </div>
+      <div class="evidence-body" id="evidenceBody">
+        <div class="evidence-empty">
+          <div class="evidence-empty-art" aria-hidden="true"><span></span><span></span><span></span></div>
+          <p>Ask a question to see the exact passages, pages and similarity scores used to ground the answer.</p>
+        </div>
+      </div>
+    </aside>
+  </div>
+  <div class="scrim" id="scrim" hidden></div>
+
+  <div class="toast hidden" id="toast" role="status"></div>
+  <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body>
+</html>
